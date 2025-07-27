@@ -13,6 +13,7 @@ from services.transcriber import Transcriber
 from services.translator import Translator
 from services.tts_service import TTSService
 from services.video_processor import VideoProcessor
+from services.gender_detector import GenderDetector
 from utils.job_manager import JobManager
 
 # Load environment variables
@@ -36,6 +37,7 @@ transcriber = Transcriber()
 translator = Translator()
 tts_service = TTSService()
 video_processor = VideoProcessor()
+gender_detector = GenderDetector()
 
 class DubRequest(BaseModel):
     youtube_url: str
@@ -129,21 +131,25 @@ async def process_dubbing_job(job_id: str, youtube_url: str, target_language: st
         
         # Step 2: Extract audio
         audio_path = await video_processor.extract_audio(video_path, job_id)
+        job_manager.update_job(job_id, {"status": "detecting_gender", "progress": 25})
+        
+        # Step 3: Detect speaker gender
+        gender = await gender_detector.detect_gender_from_audio(audio_path)
         job_manager.update_job(job_id, {"status": "transcribing", "progress": 30})
         
-        # Step 3: Transcribe audio
+        # Step 4: Transcribe audio
         transcription = await transcriber.transcribe(audio_path, source_language)
         job_manager.update_job(job_id, {"status": "translating", "progress": 50})
         
-        # Step 4: Translate transcription
+        # Step 5: Translate transcription
         translated_text = await translator.translate(transcription, target_language)
         job_manager.update_job(job_id, {"status": "generating_speech", "progress": 70})
         
-        # Step 5: Generate speech
-        dubbed_audio_path = await tts_service.generate_speech(translated_text, target_language, job_id)
+        # Step 6: Generate speech with gender-matched voice
+        dubbed_audio_path = await tts_service.generate_speech(translated_text, target_language, job_id, gender)
         job_manager.update_job(job_id, {"status": "synchronizing", "progress": 85})
         
-        # Step 6: Synchronize audio with video
+        # Step 7: Synchronize audio with video
         output_path = await video_processor.sync_audio_with_video(
             video_path, dubbed_audio_path, job_id
         )

@@ -15,8 +15,8 @@ class TTSService:
         else:
             self.client = None
     
-    async def generate_speech(self, text: str, target_language: str, job_id: str) -> str:
-        """Generate speech from text using ElevenLabs TTS"""
+    async def generate_speech(self, text: str, target_language: str, job_id: str, gender: str = "unknown") -> str:
+        """Generate speech from text using ElevenLabs TTS with gender-based voice selection"""
         try:
             if not text or not text.strip():
                 raise Exception("No text provided for speech generation")
@@ -31,7 +31,7 @@ class TTSService:
             # Run TTS generation in executor
             loop = asyncio.get_event_loop()
             audio_path = await loop.run_in_executor(
-                None, self._generate_speech_sync, text, target_language, output_dir
+                None, self._generate_speech_sync, text, target_language, output_dir, gender
             )
             
             return audio_path
@@ -39,11 +39,11 @@ class TTSService:
         except Exception as e:
             raise Exception(f"Speech generation failed: {str(e)}")
     
-    def _generate_speech_sync(self, text: str, target_language: str, output_dir: str) -> str:
-        """Synchronous speech generation using ElevenLabs"""
+    def _generate_speech_sync(self, text: str, target_language: str, output_dir: str, gender: str = "unknown") -> str:
+        """Synchronous speech generation using ElevenLabs with gender-based voice selection"""
         try:
-            # Select appropriate voice based on language
-            voice_id = self._get_voice_for_language(target_language)
+            # Select appropriate voice based on language and gender
+            voice_id = self._get_voice_for_language_and_gender(target_language, gender)
             
             # Generate audio using the new API
             audio = self.client.text_to_speech.convert(
@@ -69,28 +69,84 @@ class TTSService:
         except Exception as e:
             raise Exception(f"ElevenLabs TTS error: {str(e)}")
     
-    def _get_voice_for_language(self, language: str) -> str:
-        """Get appropriate voice ID for the target language"""
-        # Language to voice mapping for ElevenLabs
+    def _get_voice_for_language_and_gender(self, language: str, gender: str = "unknown") -> str:
+        """Get appropriate voice ID for the target language and gender"""
+        # Language and gender to voice mapping for ElevenLabs
         voice_mapping = {
-            "en": "21m00Tcm4TlvDq8ikWAM",  # Rachel - English
-            "es": "ErXwobaYiN019PkySvjV",  # Antoni - Spanish
-            "fr": "yoZ06aMxZJJ28mfd3POQ",  # Josh - French
-            "de": "AZnzlk1XvdvUeBnXmlld",  # Domi - German
-            "it": "EXAVITQu4vr4xnSDxMaL",  # Bella - Italian
-            "pt": "VR6AewLTigWG4xSOukaG",  # Arnold - Portuguese
-            "ru": "VR6AewLTigWG4xSOukaG",  # Arnold - Russian
-            "ja": "VR6AewLTigWG4xSOukaG",  # Arnold - Japanese
-            "ko": "VR6AewLTigWG4xSOukaG",  # Arnold - Korean
-            "zh": "VR6AewLTigWG4xSOukaG",  # Arnold - Chinese
-            "hi": "VR6AewLTigWG4xSOukaG",  # Arnold - Hindi
-            "ar": "VR6AewLTigWG4xSOukaG",  # Arnold - Arabic
+            "en": {
+                "male": "21m00Tcm4TlvDq8ikWAM",    # Rachel - English (Female)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - English (Female)
+                "unknown": "21m00Tcm4TlvDq8ikWAM"  # Default English voice
+            },
+            "es": {
+                "male": "ErXwobaYiN019PkySvjV",    # Antoni - Spanish (Male)
+                "female": "EXAVITQu4vr4xnSDxMaL",  # Bella - Spanish (Female)
+                "unknown": "ErXwobaYiN019PkySvjV"  # Default Spanish voice
+            },
+            "fr": {
+                "male": "yoZ06aMxZJJ28mfd3POQ",    # Josh - French (Male)
+                "female": "AZnzlk1XvdvUeBnXmlld",  # Domi - French (Female)
+                "unknown": "yoZ06aMxZJJ28mfd3POQ"  # Default French voice
+            },
+            "de": {
+                "male": "AZnzlk1XvdvUeBnXmlld",    # Domi - German (Male)
+                "female": "EXAVITQu4vr4xnSDxMaL",  # Bella - German (Female)
+                "unknown": "AZnzlk1XvdvUeBnXmlld"  # Default German voice
+            },
+            "it": {
+                "male": "EXAVITQu4vr4xnSDxMaL",    # Bella - Italian (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Italian (Female)
+                "unknown": "EXAVITQu4vr4xnSDxMaL"  # Default Italian voice
+            },
+            "pt": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Portuguese (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Portuguese (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Portuguese voice
+            },
+            "ru": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Russian (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Russian (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Russian voice
+            },
+            "ja": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Japanese (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Japanese (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Japanese voice
+            },
+            "ko": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Korean (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Korean (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Korean voice
+            },
+            "zh": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Chinese (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Chinese (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Chinese voice
+            },
+            "hi": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Hindi (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Hindi (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Hindi voice
+            },
+            "ar": {
+                "male": "VR6AewLTigWG4xSOukaG",    # Arnold - Arabic (Male)
+                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Arabic (Female)
+                "unknown": "VR6AewLTigWG4xSOukaG"  # Default Arabic voice
+            }
         }
         
         # Get the base language code (e.g., 'en' from 'en-US')
         base_language = language.split('-')[0].lower()
         
-        return voice_mapping.get(base_language, self.default_voice_id)
+        # Get gender-specific voice mapping
+        language_voices = voice_mapping.get(base_language, {})
+        voice_id = language_voices.get(gender, language_voices.get("unknown", self.default_voice_id))
+        
+        return voice_id
+    
+    def _get_voice_for_language(self, language: str) -> str:
+        """Get appropriate voice ID for the target language (backward compatibility)"""
+        return self._get_voice_for_language_and_gender(language, "unknown")
     
     async def get_available_voices(self) -> list:
         """Get list of available voices from ElevenLabs"""
