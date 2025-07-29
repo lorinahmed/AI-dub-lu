@@ -14,6 +14,7 @@ from services.translator import Translator
 from services.tts_service import TTSService
 from services.video_processor import VideoProcessor
 from services.gender_detector import GenderDetector
+from services.ai_dubber import AIDubber
 from utils.job_manager import JobManager
 
 # Load environment variables
@@ -38,11 +39,18 @@ translator = Translator()
 tts_service = TTSService()
 video_processor = VideoProcessor()
 gender_detector = GenderDetector()
+ai_dubber = AIDubber()
 
 class DubRequest(BaseModel):
     youtube_url: str
     target_language: str
     source_language: Optional[str] = None
+
+class AIDubRequest(BaseModel):
+    youtube_url: str
+    target_language: str
+    source_language: Optional[str] = None
+    use_ai_analysis: bool = True
 
 class DubResponse(BaseModel):
     job_id: str
@@ -119,6 +127,41 @@ async def get_jobs():
     stats = job_manager.get_job_stats()
     return stats
 
+@app.post("/dub/ai", response_model=DubResponse)
+async def start_ai_dubbing(request: AIDubRequest, background_tasks: BackgroundTasks):
+    """Start AI-powered dubbing with speaker diarization and intelligent voice matching"""
+    try:
+        # Generate unique job ID
+        job_id = str(uuid.uuid4())
+        
+        # Initialize job
+        job_manager.create_job(job_id, {
+            "youtube_url": request.youtube_url,
+            "target_language": request.target_language,
+            "source_language": request.source_language,
+            "use_ai_analysis": request.use_ai_analysis,
+            "status": "initialized",
+            "dubbing_type": "ai_enhanced"
+        })
+        
+        # Start background processing
+        background_tasks.add_task(
+            process_ai_dubbing_job,
+            job_id,
+            request.youtube_url,
+            request.target_language,
+            request.source_language
+        )
+        
+        return DubResponse(
+            job_id=job_id,
+            status="started",
+            message="AI-powered dubbing job started successfully"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 async def process_dubbing_job(job_id: str, youtube_url: str, target_language: str, source_language: Optional[str] = None):
     """Background task to process the dubbing job"""
     try:
@@ -135,7 +178,8 @@ async def process_dubbing_job(job_id: str, youtube_url: str, target_language: st
         
         # Step 3: Detect speaker gender
         gender = await gender_detector.detect_gender_from_audio(audio_path)
-        job_manager.update_job(job_id, {"status": "transcribing", "progress": 30})
+        print(f"DEBUG: Detected gender for job {job_id}: {gender}")
+        job_manager.update_job(job_id, {"status": "transcribing", "progress": 30, "detected_gender": gender})
         
         # Step 4: Transcribe audio
         transcription = await transcriber.transcribe(audio_path, source_language)
@@ -167,6 +211,44 @@ async def process_dubbing_job(job_id: str, youtube_url: str, target_language: st
             "status": "failed",
             "error": str(e),
             "message": f"Dubbing failed: {str(e)}"
+        })
+
+async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language: str, source_language: Optional[str] = None):
+    """Background task to process AI-powered dubbing job"""
+    try:
+        # Update job status
+        job_manager.update_job(job_id, {"status": "downloading", "progress": 10})
+        
+        # Step 1: Download YouTube video
+        video_path = await youtube_downloader.download_video(youtube_url, job_id)
+        job_manager.update_job(job_id, {"status": "extracting_audio", "progress": 20})
+        
+        # Step 2: Extract audio
+        audio_path = await video_processor.extract_audio(video_path, job_id)
+        job_manager.update_job(job_id, {"status": "ai_analysis", "progress": 30})
+        
+        # Step 3: AI-powered dubbing with speaker diarization
+        dubbed_audio_path = await ai_dubber.dub_with_ai_analysis(audio_path, target_language, job_id)
+        job_manager.update_job(job_id, {"status": "synchronizing", "progress": 85})
+        
+        # Step 4: Synchronize audio with video
+        output_path = await video_processor.sync_audio_with_video(
+            video_path, dubbed_audio_path, job_id
+        )
+        
+        # Update job as completed
+        job_manager.update_job(job_id, {
+            "status": "completed",
+            "progress": 100,
+            "output_path": output_path,
+            "message": "AI-powered dubbing completed successfully"
+        })
+        
+    except Exception as e:
+        job_manager.update_job(job_id, {
+            "status": "failed",
+            "error": str(e),
+            "message": f"AI dubbing failed: {str(e)}"
         })
 
 @app.get("/health")

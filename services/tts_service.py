@@ -28,13 +28,18 @@ class TTSService:
             output_dir = os.path.join(os.getenv("OUTPUT_DIR", "./outputs"), job_id)
             os.makedirs(output_dir, exist_ok=True)
             
-            # Run TTS generation in executor
+            # Run TTS generation in executor with timeout
             loop = asyncio.get_event_loop()
-            audio_path = await loop.run_in_executor(
-                None, self._generate_speech_sync, text, target_language, output_dir, gender
-            )
-            
-            return audio_path
+            try:
+                audio_path = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self._generate_speech_sync, text, target_language, output_dir, gender
+                    ),
+                    timeout=60.0  # 60 second timeout
+                )
+                return audio_path
+            except asyncio.TimeoutError:
+                raise Exception("TTS generation timed out after 60 seconds")
             
         except Exception as e:
             raise Exception(f"Speech generation failed: {str(e)}")
@@ -44,12 +49,27 @@ class TTSService:
         try:
             # Select appropriate voice based on language and gender
             voice_id = self._get_voice_for_language_and_gender(target_language, gender)
+            print(f"DEBUG: Selected voice_id: {voice_id} for language: {target_language}, gender: {gender}")
             
-            # Generate audio using the new API
+            # Choose appropriate model based on language
+            # Use eleven_multilingual_v2 for most languages, but fallback to eleven_monolingual_v1 for problematic ones
+            if target_language in ["hi", "ar", "zh", "ja", "ko"]:
+                model_id = "eleven_monolingual_v1"  # More reliable for non-Latin scripts
+            else:
+                model_id = "eleven_multilingual_v2"  # Better for Latin script languages
+            
+            print(f"DEBUG: Using model: {model_id} for language: {target_language}")
+            
+            # Clean the text to remove any problematic characters
+            cleaned_text = text.strip()
+            if not cleaned_text:
+                raise Exception("Empty text after cleaning")
+            
+            # Generate audio using the API
             audio = self.client.text_to_speech.convert(
-                text=text,
+                text=cleaned_text,
                 voice_id=voice_id,
-                model_id="eleven_multilingual_v2"
+                model_id=model_id
             )
             
             # Save audio file
@@ -64,9 +84,11 @@ class TTSService:
                     # If it's already bytes
                     f.write(audio)
             
+            print(f"DEBUG: Audio generated successfully: {output_path}")
             return output_path
             
         except Exception as e:
+            print(f"DEBUG: TTS generation error: {str(e)}")
             raise Exception(f"ElevenLabs TTS error: {str(e)}")
     
     def _get_voice_for_language_and_gender(self, language: str, gender: str = "unknown") -> str:
@@ -74,7 +96,7 @@ class TTSService:
         # Language and gender to voice mapping for ElevenLabs
         voice_mapping = {
             "en": {
-                "male": "21m00Tcm4TlvDq8ikWAM",    # Rachel - English (Female)
+                "male": "ErXwobaYiN019PkySvjV",    # Antoni - English (Male)
                 "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - English (Female)
                 "unknown": "21m00Tcm4TlvDq8ikWAM"  # Default English voice
             },
@@ -94,8 +116,8 @@ class TTSService:
                 "unknown": "AZnzlk1XvdvUeBnXmlld"  # Default German voice
             },
             "it": {
-                "male": "EXAVITQu4vr4xnSDxMaL",    # Bella - Italian (Male)
-                "female": "21m00Tcm4TlvDq8ikWAM",  # Rachel - Italian (Female)
+                "male": "ErXwobaYiN019PkySvjV",    # Antoni - Italian (Male)
+                "female": "EXAVITQu4vr4xnSDxMaL",  # Bella - Italian (Female)
                 "unknown": "EXAVITQu4vr4xnSDxMaL"  # Default Italian voice
             },
             "pt": {
