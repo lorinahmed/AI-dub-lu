@@ -10,7 +10,7 @@ import json
 from services.transcriber import Transcriber
 from services.translator import Translator
 from services.tts_service import TTSService
-from services.gender_detector import GenderDetector
+from pyannote.audio import Pipeline
 
 @dataclass
 class SpeakerSegment:
@@ -24,34 +24,48 @@ class SpeakerSegment:
     emotion: str = "neutral"
     voice_characteristics: Dict = None
     language: str = "en"
+    matched_voice_id: str = None
+    matched_voice_name: str = None
 
 class AIDubber:
     def __init__(self):
         self.transcriber = Transcriber()
         self.translator = Translator()
         self.tts_service = TTSService()
-        self.gender_detector = GenderDetector()
         self.whisper_model = whisper.load_model("base")
-        print("DEBUG: Using fallback speaker detection (PyAnnote removed)")
+        print("DEBUG: AI Dubber initialized with PyAnnote speaker diarization and voice matching")
         
     async def dub_with_ai_analysis(self, audio_path: str, target_language: str, job_id: str) -> str:
         """AI-powered dubbing with speaker diarization and intelligent voice matching"""
         try:
             print(f"DEBUG: Starting AI-powered dubbing for job {job_id}")
             
-            # Step 1: AI-powered transcription with speaker diarization
-            segments = await self._ai_transcribe_with_speakers(audio_path)
+            # Step 1: Get PyAnnote speaker diarization
+            huggingface_token = os.getenv("HUGGINGFACE_TOKEN")
+            if not huggingface_token:
+                raise Exception("HUGGINGFACE_TOKEN environment variable not set. Please add it to your .env file.")
             
-            # Step 2: AI analysis of each speaker segment
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                use_auth_token=huggingface_token
+            )
+            diarization = pipeline(audio_path)
+            print("DEBUG: PyAnnote diarization result:")
+            print(diarization)
+            
+            # Step 2: AI-powered transcription with PyAnnote speaker diarization
+            segments = await self._ai_transcribe_with_pyannote(audio_path, diarization)
+            
+            # Step 3: AI analysis of each speaker segment
             segments = await self._analyze_speakers_ai(segments, audio_path)
             
-            # Step 3: Intelligent voice matching per speaker
+            # Step 4: Intelligent voice matching per speaker
             segments = await self._match_voices_intelligently(segments, target_language)
             
-            # Step 4: Translate with context preservation
+            # Step 5: Translate with context preservation
             segments = await self._translate_with_context(segments, target_language)
             
-            # Step 5: Generate AI-enhanced speech
+            # Step 6: Generate AI-enhanced speech
             dubbed_audio_path = await self._generate_ai_speech(segments, target_language, job_id)
             
             return dubbed_audio_path
@@ -59,10 +73,10 @@ class AIDubber:
         except Exception as e:
             raise Exception(f"AI dubbing failed: {str(e)}")
     
-    async def _ai_transcribe_with_speakers(self, audio_path: str) -> List[SpeakerSegment]:
-        """AI-powered transcription with fallback speaker detection"""
+    async def _ai_transcribe_with_pyannote(self, audio_path: str, diarization) -> List[SpeakerSegment]:
+        """AI-powered transcription with PyAnnote speaker diarization"""
         try:
-            print(f"DEBUG: Starting AI transcription with fallback speaker detection")
+            print(f"DEBUG: Starting AI transcription with PyAnnote speaker detection")
             
             # Step 1: Use Whisper for transcription
             result = self.whisper_model.transcribe(
@@ -74,6 +88,29 @@ class AIDubber:
             print("-----------------Whisper result----------------- ")
             print(result)
             
+            # Step 2: Align Whisper segments with PyAnnote diarization
+            segments = self._align_whisper_with_pyannote(result['segments'], diarization)
+            
+            print(f"DEBUG: Created {len(segments)} segments with PyAnnote speaker detection")
+            return segments
+            
+        except Exception as e:
+            raise Exception(f"AI transcription failed: {str(e)}")
+    
+    async def _ai_transcribe_with_speakers(self, audio_path: str) -> List[SpeakerSegment]:
+        """AI-powered transcription with fallback speaker detection (legacy method)"""
+        try:
+            print(f"DEBUG: Starting AI transcription with fallback speaker detection")
+            
+            # Step 1: Use Whisper for transcription
+            result = self.whisper_model.transcribe(
+                audio_path,
+                verbose=True,
+                word_timestamps=True,
+                language="en"
+            )
+            
+            
             # Step 2: Create simple speaker segments (fallback approach)
             segments = self._create_fallback_speaker_segments(result['segments'])
             
@@ -82,6 +119,77 @@ class AIDubber:
             
         except Exception as e:
             raise Exception(f"AI transcription failed: {str(e)}")
+    
+    def _align_whisper_with_pyannote(self, whisper_segments: List[Dict], diarization) -> List[SpeakerSegment]:
+        """Align Whisper transcription segments with PyAnnote speaker diarization"""
+        try:
+            segments = []
+            
+            # Extract speaker timeline from PyAnnote diarization
+            speaker_timeline = []
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                speaker_timeline.append({
+                    'start': turn.start,
+                    'end': turn.end,
+                    'speaker': speaker
+                })
+                print(f"DEBUG: PyAnnote - Speaker {speaker} speaks from {turn.start:.1f}s to {turn.end:.1f}s")
+            
+            # Sort by start time
+            speaker_timeline.sort(key=lambda x: x['start'])
+            
+            print(f"DEBUG: PyAnnote found {len(set(s['speaker'] for s in speaker_timeline))} unique speakers")
+            
+            # Align each Whisper segment with PyAnnote speaker
+            for i, segment in enumerate(whisper_segments):
+                segment_start = segment['start']
+                segment_end = segment['end']
+                segment_mid = (segment_start + segment_end) / 2
+                
+                # Find which speaker is talking at the midpoint of this segment
+                assigned_speaker = 'SPEAKER_00'  # Default fallback
+                
+                for speaker_turn in speaker_timeline:
+                    if speaker_turn['start'] <= segment_mid <= speaker_turn['end']:
+                        assigned_speaker = speaker_turn['speaker']
+                        break
+                
+                # If no exact match, find the closest speaker turn
+                if assigned_speaker == 'SPEAKER_00' and speaker_timeline:
+                    closest_turn = min(speaker_timeline, 
+                                     key=lambda x: min(abs(x['start'] - segment_mid), abs(x['end'] - segment_mid)))
+                    assigned_speaker = closest_turn['speaker']
+                
+                # Create speaker segment
+                speaker_segment = SpeakerSegment(
+                    start_time=segment_start,
+                    end_time=segment_end,
+                    text=segment['text'].strip(),
+                    speaker_id=assigned_speaker,
+                    confidence=segment.get('confidence', 0.0),
+                    voice_characteristics={}
+                )
+                
+                segments.append(speaker_segment)
+                print(f"DEBUG: Segment {i}: Speaker {assigned_speaker}, Text: {segment['text'][:50]}...")
+            
+            return segments
+            
+        except Exception as e:
+            print(f"PyAnnote alignment error: {e}")
+            # Fallback: assign all segments to single speaker
+            segments = []
+            for i, segment in enumerate(whisper_segments):
+                speaker_segment = SpeakerSegment(
+                    start_time=segment['start'],
+                    end_time=segment['end'],
+                    text=segment['text'].strip(),
+                    speaker_id='SPEAKER_00',
+                    confidence=segment.get('confidence', 0.0),
+                    voice_characteristics={}
+                )
+                segments.append(speaker_segment)
+            return segments
     
     def _create_fallback_speaker_segments(self, whisper_segments: List[Dict]) -> List[SpeakerSegment]:
         """Create speaker segments using a simple fallback approach"""
@@ -136,9 +244,9 @@ class AIDubber:
 
     
     async def _analyze_speakers_ai(self, segments: List[SpeakerSegment], audio_path: str) -> List[SpeakerSegment]:
-        """AI analysis of each speaker's characteristics"""
+        """AI analysis of each speaker's voice characteristics for voice matching"""
         try:
-            print(f"DEBUG: Starting AI speaker analysis")
+            print(f"DEBUG: Starting voice characteristics analysis for voice matching")
             
             # Load audio for analysis
             y, sr = librosa.load(audio_path, sr=None)
@@ -150,12 +258,12 @@ class AIDubber:
             
             # Analyze each speaker's characteristics
             for speaker_id, speaker_segments in speaker_groups.items():
-                print(f"DEBUG: Analyzing speaker {speaker_id} with {len(speaker_segments)} segments")
+                print(f"DEBUG: Analyzing voice characteristics for speaker {speaker_id} with {len(speaker_segments)} segments")
                 
                 # Analyze first few segments of this speaker
                 analysis_segments = speaker_segments[:3]  # Analyze first 3 segments
                 
-                detected_genders = []
+                all_characteristics = []
                 
                 for segment in analysis_segments:
                     try:
@@ -171,53 +279,38 @@ class AIDubber:
                         # AI analysis of voice characteristics
                         characteristics = await self._analyze_voice_characteristics(segment_audio, sr)
                         segment.voice_characteristics = characteristics
+                        all_characteristics.append(characteristics)
                         
-                        # Detect gender using the existing gender detector directly
-                        temp_path = f"/tmp/segment_{speaker_id}_{segment.start_time}_{np.random.randint(1000, 9999)}.wav"
-                        import soundfile as sf
-                        
-                        # Ensure audio is in the correct format
-                        if segment_audio.dtype != np.float32:
-                            segment_audio = segment_audio.astype(np.float32)
-                        
-                        # Normalize audio to prevent clipping
-                        if np.max(np.abs(segment_audio)) > 1.0:
-                            segment_audio = segment_audio / np.max(np.abs(segment_audio))
-                        
-                        sf.write(temp_path, segment_audio, sr)
-                        
-                        gender = await self.gender_detector.detect_gender_from_audio(temp_path)
-                        segment.gender = gender
-                        detected_genders.append(gender)
-                        
-                        # Clean up temp file
-                        if os.path.exists(temp_path):
-                            os.remove(temp_path)
-                        
-                        # Detect emotion
-                        emotion = await self._detect_emotion_ai(segment_audio, sr, characteristics)
-                        segment.emotion = emotion
-                        
-                        print(f"DEBUG: Speaker {speaker_id} - Gender: {gender}, Emotion: {emotion}")
+                        print(f"DEBUG: Speaker {speaker_id} - Pitch: {characteristics.get('pitch_mean', 0):.1f}Hz, "
+                              f"Energy: {characteristics.get('energy_mean', 0):.3f}, "
+                              f"Spectral Centroid: {characteristics.get('spectral_centroid_mean', 0):.1f}Hz")
                         
                     except Exception as e:
                         print(f"DEBUG: Error analyzing segment for speaker {speaker_id}: {e}")
-                        # Clean up temp file if it exists
-                        if 'temp_path' in locals() and os.path.exists(temp_path):
-                            os.remove(temp_path)
                         continue
                 
-                # Assign the most common gender to all segments of this speaker
-                if detected_genders:
-                    dominant_gender = max(set(detected_genders), key=detected_genders.count)
+                # Calculate average characteristics for this speaker
+                if all_characteristics:
+                    avg_characteristics = {}
+                    for key in all_characteristics[0].keys():
+                        values = [char.get(key, 0) for char in all_characteristics if char.get(key, 0) > 0]
+                        if values:
+                            avg_characteristics[key] = sum(values) / len(values)
+                        else:
+                            avg_characteristics[key] = 0
+                    
+                    # Assign average characteristics to all segments of this speaker
                     for segment in speaker_segments:
-                        segment.gender = dominant_gender
-                    print(f"DEBUG: Speaker {speaker_id} dominant gender: {dominant_gender}")
+                        segment.voice_characteristics = avg_characteristics
+                        segment.gender = "unknown"  # We're not using gender detection
+                        segment.emotion = "neutral"  # Keep default emotion
+                
+                print(f"DEBUG: Completed voice analysis for speaker {speaker_id}")
             
             return segments
             
         except Exception as e:
-            raise Exception(f"AI speaker analysis failed: {str(e)}")
+            raise Exception(f"Voice characteristics analysis failed: {str(e)}")
     
     async def _analyze_voice_characteristics(self, audio: np.ndarray, sr: int) -> Dict:
         """Analyze voice characteristics using AI/ML features"""
@@ -257,59 +350,7 @@ class AIDubber:
             print(f"Voice analysis error: {e}")
             return {}
     
-    async def _detect_gender_ai(self, audio: np.ndarray, sr: int, characteristics: Dict) -> str:
-        """AI-enhanced gender detection using multiple features"""
-        try:
-            # Use the existing gender detector as base
-            temp_path = f"/tmp/temp_gender_analysis_{np.random.randint(1000, 9999)}.wav"
-            import soundfile as sf
-            
-            # Ensure audio is in the correct format
-            if audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
-            
-            # Normalize audio to prevent clipping
-            if np.max(np.abs(audio)) > 1.0:
-                audio = audio / np.max(np.abs(audio))
-            
-            sf.write(temp_path, audio, sr)
-            
-            gender = await self.gender_detector.detect_gender_from_audio(temp_path)
-            
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            
-            # Enhance with additional AI features
-            if characteristics:
-                # Use spectral centroid and pitch for additional validation
-                spectral_centroid = characteristics.get('spectral_centroid_mean', 0)
-                pitch_mean = characteristics.get('pitch_mean', 0)
-                
-                # AI confidence scoring
-                confidence_score = 0
-                if spectral_centroid > 2000:
-                    confidence_score += 1  # Likely female
-                elif spectral_centroid < 1500:
-                    confidence_score -= 1  # Likely male
-                
-                if pitch_mean > 200:
-                    confidence_score += 1  # Likely female
-                elif pitch_mean < 150:
-                    confidence_score -= 1  # Likely male
-                
-                # Override if AI confidence is high
-                if abs(confidence_score) >= 2:
-                    gender = "female" if confidence_score > 0 else "male"
-            
-            return gender
-            
-        except Exception as e:
-            print(f"AI gender detection error: {e}")
-            # Clean up temp file if it exists
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.remove(temp_path)
-            return "unknown"
+
     
     async def _detect_emotion_ai(self, audio: np.ndarray, sr: int, characteristics: Dict) -> str:
         """AI emotion detection based on voice characteristics"""
@@ -336,16 +377,20 @@ class AIDubber:
             return "neutral"
     
     async def _match_voices_intelligently(self, segments: List[SpeakerSegment], target_language: str) -> List[SpeakerSegment]:
-        """Intelligent voice matching based on AI analysis"""
+        """Intelligent voice matching based on AI analysis and available voices"""
         try:
             print(f"DEBUG: Starting intelligent voice matching")
             
-            # Group by speaker and analyze patterns
+            # Step 1: Download available voices from ElevenLabs
+            available_voices = await self.tts_service.get_available_voices()
+            print(f"DEBUG: Downloaded {len(available_voices)} available voices from ElevenLabs")
+            
+            # Step 2: Group by speaker and analyze patterns
             speaker_profiles = defaultdict(list)
             for segment in segments:
                 speaker_profiles[segment.speaker_id].append(segment)
             
-            # Create voice profiles for each speaker
+            # Step 3: Create voice profiles for each speaker
             voice_profiles = {}
             for speaker_id, speaker_segments in speaker_profiles.items():
                 # Analyze all segments for this speaker
@@ -372,10 +417,188 @@ class AIDubber:
                           f"Pitch: {avg_profile.get('pitch_mean', 0):.1f}Hz, "
                           f"Energy: {avg_profile.get('energy_mean', 0):.3f}")
             
+            # Step 4: Match speakers to available voices based on characteristics
+            if not available_voices:
+                raise Exception("Failed to download available voices from ElevenLabs - voice matching cannot proceed")
+            
+            speaker_voice_mapping = await self._match_speakers_to_voices(
+                voice_profiles, available_voices, target_language
+            )
+            
+            # Step 5: Assign matched voice IDs to segments
+            for speaker_id, voice_info in speaker_voice_mapping.items():
+                # Only print once per speaker, not per segment
+                print(f"DEBUG: Speaker {speaker_id} matched to voice: {voice_info.get('name')} ({voice_info.get('voice_id')})")
+                
+                # Assign to all segments of this speaker
+                for segment in segments:
+                    if segment.speaker_id == speaker_id:
+                        segment.matched_voice_id = voice_info.get('voice_id')
+                        segment.matched_voice_name = voice_info.get('name')
+            
             return segments
             
         except Exception as e:
             raise Exception(f"Voice matching failed: {str(e)}")
+    
+    async def _match_speakers_to_voices(self, voice_profiles: Dict, available_voices: List, target_language: str) -> Dict:
+        """Match speaker profiles to available voices based on characteristics"""
+        try:
+            speaker_voice_mapping = {}
+            
+            # Filter voices by language support using language field
+            language_voices = []
+            print(f"DEBUG: Checking {len(available_voices)} voices for language support: {target_language}")
+            
+            for voice in available_voices:
+                # Check verified_languages array (proper ElevenLabs API approach)
+                if hasattr(voice, 'verified_languages') and voice.verified_languages:
+                    print(f"DEBUG: Voice {voice.name} - Verified languages: {voice.verified_languages}")
+                    
+                    # Check if target language is in verified_languages
+                    supports_language = False
+                    for lang_info in voice.verified_languages:
+                        # Each lang_info is a VerifiedVoiceLanguageResponseModel object
+                        if hasattr(lang_info, 'language') and lang_info.language:
+                            if lang_info.language.lower() == target_language.lower():
+                                supports_language = True
+                                print(f"DEBUG: Found language match: {lang_info.language}")
+                                break
+                    
+                    if supports_language:
+                        language_voices.append(voice)
+                        print(f"DEBUG: ✓ Voice {voice.name} supports {target_language}")
+                    else:
+                        print(f"DEBUG: ✗ Voice {voice.name} does not support {target_language}")
+                else:
+                    print(f"DEBUG: Voice {voice.name} - No verified_languages available")
+            
+            if not language_voices:
+                print(f"DEBUG: No voices found supporting language: {target_language}")
+                print("DEBUG: Available voices and their verified_languages:")
+                for voice in available_voices:
+                    if hasattr(voice, 'verified_languages') and voice.verified_languages:
+                        languages = [lang.language for lang in voice.verified_languages if hasattr(lang, 'language') and lang.language]
+                        print(f"  - {voice.name}: {languages}")
+                raise Exception(f"No voices found supporting language: {target_language}")
+            
+            print(f"DEBUG: Found {len(language_voices)} voices supporting language {target_language}")
+            
+            # Match each speaker to the best available voice
+            used_voices = set()  # Track used voices to avoid duplicates
+            
+            for speaker_id, profile in voice_profiles.items():
+                best_voice = None
+                best_score = -1
+                candidate_voices = []
+                
+                # Score all voices for this speaker
+                for voice in language_voices:
+                    score = self._calculate_voice_match_score(profile, voice)
+                    candidate_voices.append((voice, score))
+                
+                # Sort by score (highest first)
+                candidate_voices.sort(key=lambda x: x[1], reverse=True)
+                
+                # Find the best unused voice
+                for voice, score in candidate_voices:
+                    if voice.voice_id not in used_voices:
+                        best_voice = voice
+                        best_score = score
+                        used_voices.add(voice.voice_id)
+                        break
+                
+                # If all voices are used, use the best one anyway
+                if not best_voice and candidate_voices:
+                    best_voice, best_score = candidate_voices[0]
+                
+                if not best_voice:
+                    raise Exception(f"No suitable voice found for speaker {speaker_id} with characteristics: {profile}")
+                
+                speaker_voice_mapping[speaker_id] = {
+                    'voice_id': best_voice.voice_id,
+                    'name': best_voice.name,
+                    'match_score': best_score
+                }
+                print(f"DEBUG: Speaker {speaker_id} matched to {best_voice.name} with score {best_score:.2f}")
+            
+            return speaker_voice_mapping
+            
+        except Exception as e:
+            print(f"Voice matching error: {e}")
+            return {}
+    
+    def _calculate_voice_match_score(self, speaker_profile: Dict, voice) -> float:
+        """Calculate how well a voice matches a speaker profile based on acoustic characteristics"""
+        try:
+            score = 0.0
+            
+            # Get speaker acoustic characteristics
+            speaker_pitch = speaker_profile.get('pitch_mean', 0)
+            speaker_energy = speaker_profile.get('energy_mean', 0)
+            speaker_spectral_centroid = speaker_profile.get('spectral_centroid_mean', 0)
+            speaker_mfcc_mean = speaker_profile.get('mfcc_mean', 0)
+            speaker_speaking_rate = speaker_profile.get('speaking_rate', 0)
+            
+            # Voice characteristics from ElevenLabs (if available)
+            if hasattr(voice, 'labels') and voice.labels:
+                # Use acoustic characteristics for matching instead of gender labels
+                voice_gender = voice.labels.get('gender', '').lower()
+                
+                # Pitch-based matching (primary factor)
+                if speaker_pitch > 0:
+                    if voice_gender in ['female', 'woman'] and 150 < speaker_pitch < 250:
+                        score += 3.0  # High score for pitch match
+                    elif voice_gender in ['male', 'man'] and 80 < speaker_pitch < 160:
+                        score += 3.0  # High score for pitch match
+                    elif voice_gender in ['female', 'woman'] and speaker_pitch < 150:
+                        score += 1.0  # Lower score for mismatch
+                    elif voice_gender in ['male', 'man'] and speaker_pitch > 160:
+                        score += 1.0  # Lower score for mismatch
+                
+                # Age characteristics based on spectral centroid
+                voice_age = voice.labels.get('age', '').lower()
+                if voice_age and speaker_spectral_centroid > 0:
+                    if 'young' in voice_age and speaker_spectral_centroid > 2000:
+                        score += 2.0  # Young voice with high spectral centroid
+                    elif 'mature' in voice_age and speaker_spectral_centroid < 1500:
+                        score += 2.0  # Mature voice with low spectral centroid
+                    elif 'young' in voice_age and speaker_spectral_centroid < 1500:
+                        score += 0.5  # Lower score for age mismatch
+                    elif 'mature' in voice_age and speaker_spectral_centroid > 2000:
+                        score += 0.5  # Lower score for age mismatch
+                
+                # Energy level matching
+                if speaker_energy > 0.1:  # High energy speaker
+                    if 'energetic' in voice.labels.get('description', '').lower():
+                        score += 1.5
+                    elif 'calm' in voice.labels.get('description', '').lower():
+                        score += 0.5
+                
+                # Accent/language preference (secondary factor)
+                voice_accent = voice.labels.get('accent', '').lower()
+                if voice_accent:
+                    score += 0.5  # Small bonus for any accent information
+            
+            # Energy level scoring
+            if speaker_energy > 0.15:  # High energy
+                score += 1.0
+            elif speaker_energy > 0.05:  # Medium energy
+                score += 0.5
+            
+            # Speaking rate consideration
+            if speaker_speaking_rate > 0.1:  # Fast speaker
+                score += 0.5
+            
+            print(f"DEBUG: Voice match score for {voice.name}: {score:.2f} "
+                  f"(Pitch: {speaker_pitch:.1f}Hz, Energy: {speaker_energy:.3f}, "
+                  f"Spectral: {speaker_spectral_centroid:.1f}Hz)")
+            
+            return score
+            
+        except Exception as e:
+            print(f"Voice match scoring error: {e}")
+            return 0.0
     
     async def _translate_with_context(self, segments: List[SpeakerSegment], target_language: str) -> List[SpeakerSegment]:
         """Translate with context preservation for better quality"""
@@ -436,27 +659,29 @@ class AIDubber:
                 # Combine all text for this speaker
                 speaker_text = " ".join([seg.text for seg in speaker_segments_list if seg.text.strip()])
                 
-                # Determine gender for this speaker based on analysis
-                # Use the most common gender detected for this speaker
-                genders = [seg.gender for seg in speaker_segments_list if seg.gender != "unknown"]
-                if genders:
-                    speaker_gender = max(set(genders), key=genders.count)
-                else:
-                    # Fallback: use pitch analysis to determine gender
-                    avg_pitch = np.mean([seg.voice_characteristics.get('pitch_mean', 0) for seg in speaker_segments_list if seg.voice_characteristics])
-                    speaker_gender = "female" if avg_pitch > 150 else "male"
+                # Get voice characteristics for this speaker
+                avg_characteristics = {}
+                if speaker_segments_list and speaker_segments_list[0].voice_characteristics:
+                    avg_characteristics = speaker_segments_list[0].voice_characteristics
+                    print(f"DEBUG: Speaker {speaker_id} - Pitch: {avg_characteristics.get('pitch_mean', 0):.1f}Hz, "
+                          f"Energy: {avg_characteristics.get('energy_mean', 0):.3f}, "
+                          f"Spectral: {avg_characteristics.get('spectral_centroid_mean', 0):.1f}Hz")
                 
-                print(f"DEBUG: Speaker {speaker_id} - Gender: {speaker_gender}, Text length: {len(speaker_text)}")
+                # Get the matched voice ID for this speaker
+                matched_voice_id = None
+                if speaker_segments_list and speaker_segments_list[0].matched_voice_id:
+                    matched_voice_id = speaker_segments_list[0].matched_voice_id
+                    print(f"DEBUG: Using matched voice ID: {matched_voice_id} for speaker {speaker_id}")
                 
-                # Generate speech for this speaker
+                # Generate speech for this speaker using matched voice
                 speaker_audio_path = await self.tts_service.generate_speech(
-                    speaker_text, target_language, f"{job_id}_{speaker_id}", speaker_gender
+                    speaker_text, target_language, f"{job_id}_{speaker_id}", "unknown", matched_voice_id
                 )
                 
                 speaker_audio_files[speaker_id] = {
                     'path': speaker_audio_path,
                     'segments': speaker_segments_list,
-                    'gender': speaker_gender
+                    'voice_characteristics': avg_characteristics
                 }
             
             # For now, let's use a simpler approach - just combine all audio without complex timestamp alignment

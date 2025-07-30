@@ -8,7 +8,8 @@ An AI-powered application that can dub YouTube videos into any language using sp
 - Extract and transcribe audio using OpenAI Whisper
 - Translate transcriptions to target language
 - Generate high-quality speech using ElevenLabs TTS
-- AI-powered speaker diarization and voice matching
+- **AI-powered speaker diarization using PyAnnote**
+- **Intelligent voice matching with ElevenLabs voices**
 - Synchronize new audio with original video
 - Support for multiple languages
 - Real-time job status tracking
@@ -287,6 +288,9 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 # Google Translate API Key (Optional)
 GOOGLE_TRANSLATE_API_KEY=your_google_translate_key_here
 
+# Hugging Face Token (Required for PyAnnote speaker diarization)
+HUGGINGFACE_TOKEN=your_huggingface_token_here
+
 # Server Configuration
 HOST=0.0.0.0
 PORT=8000
@@ -302,12 +306,76 @@ TTS_SERVICE=elevenlabs
 TTS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 ```
 
+## AI-Powered Features
+
+### PyAnnote Speaker Diarization
+
+The system uses **PyAnnote.audio** for advanced speaker diarization, which provides:
+
+- **Accurate Speaker Identification**: Identifies "who spoke when" with precise timestamps
+- **Multiple Speaker Support**: Handles conversations with multiple speakers
+- **Timestamp Alignment**: Aligns speaker segments with transcription segments
+- **High Precision**: Uses deep learning models for speaker recognition
+
+**How it works:**
+1. **Audio Analysis**: PyAnnote analyzes the audio waveform to detect speaker changes
+2. **Speaker Timeline**: Creates a timeline showing when each speaker is talking
+3. **Segment Alignment**: Aligns Whisper transcription segments with PyAnnote speaker segments
+4. **Speaker Profiles**: Each detected speaker gets their own voice profile
+
+**Example PyAnnote Output:**
+```
+[ 00:00:00.030 -->  00:00:28.161] SPEAKER_00
+[ 00:00:28.245 -->  00:00:38.033] SPEAKER_02
+[ 00:00:39.045 -->  00:00:54.452] SPEAKER_02
+[ 00:01:56.417 -->  00:02:28.058] SPEAKER_01
+```
+
+### ElevenLabs Intelligent Voice Matching
+
+The system implements sophisticated voice matching using ElevenLabs' voice library:
+
+#### Voice Characteristics Analysis
+For each detected speaker, the system analyzes:
+- **Pitch Characteristics**: Mean pitch, pitch range, pitch standard deviation
+- **Spectral Features**: Spectral centroid (voice brightness/warmth)
+- **Energy Levels**: RMS energy (speaking intensity)
+- **MFCC Features**: Voice timbre and texture
+- **Speaking Rate**: Zero-crossing rate approximation
+
+#### Voice Matching Algorithm
+The system matches speakers to ElevenLabs voices using:
+
+1. **Language Filtering**: Filters voices by target language support using `verified_languages` array
+2. **Acoustic Scoring**: Calculates match scores based on:
+   - **Pitch Compatibility**: Matches speaker pitch to voice gender characteristics
+   - **Age Characteristics**: Uses spectral centroid to match age-appropriate voices
+   - **Energy Level**: Matches speaking intensity to voice descriptions
+   - **Voice Uniqueness**: Ensures each speaker gets a different voice when possible
+
+3. **Score Calculation**:
+   ```
+   Score = Pitch Match (3.0) + Age Match (2.0) + Energy Match (1.5) + Accent Bonus (0.5)
+   ```
+
+#### Voice Selection Process
+```
+Speaker Analysis → Voice Download → Language Filter → Score Calculation → Best Match Selection
+```
+
+**Example Voice Matching:**
+```
+Speaker SPEAKER_00 (Pitch: 1407Hz, Energy: 0.034) → Charlie (Score: 2.00)
+Speaker SPEAKER_02 (Pitch: 1160Hz, Energy: 0.040) → George (Score: 2.00)  
+Speaker SPEAKER_01 (Pitch: 1424Hz, Energy: 0.045) → Will (Score: 4.00)
+```
+
 ## Architecture
 
 ```
-YouTube URL → Download → Extract Audio → Transcribe → Translate → TTS → Sync → Final Video
+YouTube URL → Download → Extract Audio → AI Transcription → Voice Analysis → Voice Matching → TTS → Sync → Final Video
                     ↓
-              AI Analysis (Speaker Diarization, Gender Detection, Voice Matching)
+              PyAnnote Diarization + Whisper Alignment + ElevenLabs Voice Matching
 ```
 
 ## Processing Pipeline
@@ -324,12 +392,15 @@ YouTube URL → Download → Extract Audio → Transcribe → Translate → TTS 
 ### AI-Powered Dubbing:
 1. **Download**: Download YouTube video
 2. **Extract Audio**: Extract audio track from video
-3. **AI Transcription**: Transcribe with speaker diarization
-4. **AI Analysis**: Analyze speaker characteristics, gender, emotion
-5. **Voice Matching**: Intelligently match voices per speaker
-6. **Context Translation**: Translate with context preservation
-7. **AI Speech Generation**: Generate speech with speaker-specific voices
-8. **Sync**: Synchronize new audio with original video
+3. **PyAnnote Diarization**: Identify speakers and create timeline
+4. **Whisper Transcription**: Transcribe with word-level timestamps
+5. **Segment Alignment**: Align Whisper segments with PyAnnote speakers
+6. **Voice Analysis**: Analyze acoustic characteristics per speaker
+7. **ElevenLabs Voice Matching**: Download and match voices by language + characteristics
+8. **Context Translation**: Translate with speaker context preservation
+9. **AI Speech Generation**: Generate speech with matched voices per speaker
+10. **Audio Combination**: Combine speaker audio with timing preservation
+11. **Sync**: Synchronize new audio with original video
 
 ## Error Handling
 

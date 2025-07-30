@@ -15,7 +15,7 @@ class TTSService:
         else:
             self.client = None
     
-    async def generate_speech(self, text: str, target_language: str, job_id: str, gender: str = "unknown") -> str:
+    async def generate_speech(self, text: str, target_language: str, job_id: str, gender: str = "unknown", voice_id: str = None) -> str:
         """Generate speech from text using ElevenLabs TTS with gender-based voice selection"""
         try:
             if not text or not text.strip():
@@ -33,7 +33,7 @@ class TTSService:
             try:
                 audio_path = await asyncio.wait_for(
                     loop.run_in_executor(
-                        None, self._generate_speech_sync, text, target_language, output_dir, gender
+                        None, self._generate_speech_sync, text, target_language, output_dir, gender, voice_id
                     ),
                     timeout=60.0  # 60 second timeout
                 )
@@ -44,12 +44,13 @@ class TTSService:
         except Exception as e:
             raise Exception(f"Speech generation failed: {str(e)}")
     
-    def _generate_speech_sync(self, text: str, target_language: str, output_dir: str, gender: str = "unknown") -> str:
+    def _generate_speech_sync(self, text: str, target_language: str, output_dir: str, gender: str = "unknown", voice_id: str = None) -> str:
         """Synchronous speech generation using ElevenLabs with gender-based voice selection"""
         try:
-            # Select appropriate voice based on language and gender
-            voice_id = self._get_voice_for_language_and_gender(target_language, gender)
-            print(f"DEBUG: Selected voice_id: {voice_id} for language: {target_language}, gender: {gender}")
+            # Use provided voice_id or select appropriate voice based on language and gender
+            if not voice_id:
+                voice_id = self._get_voice_for_language_and_gender(target_language, gender)
+            print(f"DEBUG: Using voice_id: {voice_id} for language: {target_language}, gender: {gender}")
             
             # Choose appropriate model based on language
             # Use eleven_multilingual_v2 for most languages, but fallback to eleven_monolingual_v1 for problematic ones
@@ -171,34 +172,53 @@ class TTSService:
         return self._get_voice_for_language_and_gender(language, "unknown")
     
     async def get_available_voices(self) -> list:
-        """Get list of available voices from ElevenLabs"""
+        """Get list of available voices from ElevenLabs with timeout"""
         try:
             if not self.api_key:
+                print("DEBUG: No API key available, skipping voice download")
                 return []
             
-            # Run API call in executor
-            loop = asyncio.get_event_loop()
-            voices = await loop.run_in_executor(
-                None, self._get_voices_sync
-            )
+            print("DEBUG: Starting to download available voices from ElevenLabs...")
             
-            return voices
+            # Run API call in executor with timeout
+            loop = asyncio.get_event_loop()
+            try:
+                voices = await asyncio.wait_for(
+                    loop.run_in_executor(None, self._get_voices_sync),
+                    timeout=30.0  # 30 second timeout
+                )
+                print(f"DEBUG: Successfully downloaded {len(voices)} voices from ElevenLabs")
+                return voices
+            except asyncio.TimeoutError:
+                print("DEBUG: Timeout while downloading voices from ElevenLabs (30s)")
+                return []
             
         except Exception as e:
-            print(f"Failed to get voices: {e}")
+            print(f"DEBUG: Failed to get voices: {e}")
             return []
     
     def _get_voices_sync(self) -> list:
         """Synchronous API call to get available voices"""
         try:
             if not self.client:
+                print("DEBUG: No ElevenLabs client available")
                 return []
             
-            voices = self.client.voices.get_all()
+            print("DEBUG: Making API call to ElevenLabs voices endpoint...")
+            voices_response = self.client.voices.get_all()
+            
+            # Handle the GetVoicesResponse object properly
+            if hasattr(voices_response, 'voices'):
+                voices = voices_response.voices
+            else:
+                # If it's already a list
+                voices = voices_response
+            
+            print(f"DEBUG: API call successful, received {len(voices)} voices")
             return voices
             
         except Exception as e:
-            print(f"Error fetching voices: {e}")
+            print(f"DEBUG: Error fetching voices from ElevenLabs API: {e}")
             return []
     
     async def generate_speech_with_timing(self, segments: list, target_language: str, job_id: str) -> str:
