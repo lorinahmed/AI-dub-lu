@@ -3,6 +3,7 @@ import asyncio
 import requests
 from typing import Optional
 from elevenlabs import ElevenLabs
+from pydub import AudioSegment
 
 class TTSService:
     def __init__(self):
@@ -221,8 +222,8 @@ class TTSService:
             print(f"DEBUG: Error fetching voices from ElevenLabs API: {e}")
             return []
     
-    async def generate_speech_with_timing(self, segments: list, target_language: str, job_id: str) -> str:
-        """Generate speech for segments with timing information"""
+    async def generate_speech_with_timing(self, segments: list, target_language: str, job_id: str, adjust_speed: bool = False) -> str:
+        """Generate speech for segments with timing information and optional speed adjustment"""
         try:
             if not segments:
                 raise Exception("No segments provided for speech generation")
@@ -231,19 +232,24 @@ class TTSService:
             output_dir = os.path.join(os.getenv("OUTPUT_DIR", "./outputs"), job_id)
             os.makedirs(output_dir, exist_ok=True)
             
-            # Run TTS generation in executor
+            # Run TTS generation in executor with timeout
             loop = asyncio.get_event_loop()
-            audio_path = await loop.run_in_executor(
-                None, self._generate_speech_with_timing_sync, segments, target_language, output_dir
-            )
-            
-            return audio_path
+            try:
+                audio_path = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self._generate_speech_with_timing_sync, segments, target_language, output_dir, adjust_speed
+                    ),
+                    timeout=120.0  # 120 second timeout for timing-aware generation
+                )
+                return audio_path
+            except asyncio.TimeoutError:
+                raise Exception("TTS generation timed out after 120 seconds")
             
         except Exception as e:
             raise Exception(f"Speech generation with timing failed: {str(e)}")
     
-    def _generate_speech_with_timing_sync(self, segments: list, target_language: str, output_dir: str) -> str:
-        """Synchronous speech generation for segments with timing"""
+    def _generate_speech_with_timing_sync(self, segments: list, target_language: str, output_dir: str, adjust_speed: bool = False) -> str:
+        """Synchronous speech generation for segments with timing and speed adjustment"""
         try:
             from pydub import AudioSegment
             import tempfile
@@ -256,6 +262,8 @@ class TTSService:
             
             for segment in segments:
                 text = segment.get("translated_text", "")
+                original_duration = segment.get("original_duration", 0)
+                
                 if not text.strip():
                     continue
                 
@@ -277,28 +285,24 @@ class TTSService:
                         # If it's already bytes
                         temp_file.write(audio)
                     temp_file.flush()
+                    
+                    # Load audio and adjust speed if needed
+                    segment_audio = AudioSegment.from_mp3(temp_file.name)
+                    
+                    if adjust_speed and original_duration > 0:
+                        segment_audio = self._adjust_audio_speed(segment_audio, original_duration)
+                    
                     audio_segments.append({
-                        "file": temp_file.name,
+                        "audio": segment_audio,
                         "start": segment.get("start", 0),
                         "end": segment.get("end", 0)
                     })
+                    
+                    # Clean up temporary file
+                    os.unlink(temp_file.name)
             
             # Combine audio segments with proper timing
-            combined_audio = AudioSegment.silent(duration=0)
-            
-            for segment in audio_segments:
-                # Load audio segment
-                segment_audio = AudioSegment.from_mp3(segment["file"])
-                
-                # Calculate silence duration before this segment
-                silence_duration = segment["start"] * 1000  # Convert to milliseconds
-                silence = AudioSegment.silent(duration=silence_duration)
-                
-                # Extend combined audio with silence and segment
-                combined_audio = combined_audio + silence + segment_audio
-                
-                # Clean up temporary file
-                os.unlink(segment["file"])
+            combined_audio = self._combine_audio_segments(audio_segments)
             
             # Save combined audio
             output_path = os.path.join(output_dir, "dubbed_audio.mp3")
@@ -308,6 +312,70 @@ class TTSService:
             
         except Exception as e:
             raise Exception(f"Speech generation with timing error: {str(e)}")
+    
+    def _adjust_audio_speed(self, audio: AudioSegment, target_duration: float) -> AudioSegment:
+        """Adjust audio speed to match target duration"""
+        try:
+            current_duration = len(audio) / 1000.0  # Convert to seconds
+            
+            if current_duration <= 0 or target_duration <= 0:
+                return audio
+            
+            # Calculate speed ratio
+            speed_ratio = current_duration / target_duration
+            
+            # Limit speed adjustment to prevent unnatural speech (max ±15%)
+            max_speed_adjustment = 0.15
+            if speed_ratio > (1 + max_speed_adjustment):
+                speed_ratio = 1 + max_speed_adjustment
+            elif speed_ratio < (1 - max_speed_adjustment):
+                speed_ratio = 1 - max_speed_adjustment
+            
+            # Apply speed adjustment
+            if speed_ratio != 1.0:
+                adjusted_audio = audio.speedup(playback_speed=speed_ratio)
+                return adjusted_audio
+            
+            return audio
+            
+        except Exception as e:
+            print(f"Audio speed adjustment failed: {str(e)}")
+            return audio
+    
+    def _combine_audio_segments(self, audio_segments: list) -> AudioSegment:
+        """Combine audio segments with proper timing"""
+        try:
+            if not audio_segments:
+                # Return a short silent audio if no segments
+                return AudioSegment.silent(duration=1000)  # 1 second of silence
+            
+            # Find total duration
+            total_duration = max([seg["end"] for seg in audio_segments]) if audio_segments else 1.0
+            
+            # Ensure minimum duration
+            if total_duration <= 0:
+                total_duration = 1.0
+            
+            # Create silent audio track
+            combined_audio = AudioSegment.silent(duration=total_duration * 1000)  # Convert to milliseconds
+            
+            # Overlay each segment at its correct timestamp
+            for segment in audio_segments:
+                if "audio" in segment and "start" in segment:
+                    start_time = segment["start"] * 1000  # Convert to milliseconds
+                    audio = segment["audio"]
+                    
+                    # Ensure start_time is within bounds
+                    if start_time >= 0 and start_time < len(combined_audio):
+                        # Overlay the audio segment
+                        combined_audio = combined_audio.overlay(audio, position=start_time)
+            
+            return combined_audio
+            
+        except Exception as e:
+            print(f"Audio combination failed: {str(e)}")
+            # Return a fallback silent audio
+            return AudioSegment.silent(duration=1000)
     
     def get_supported_languages(self) -> list:
         """Get list of supported languages for TTS"""

@@ -35,43 +35,113 @@ class AIDubber:
         self.whisper_model = whisper.load_model("base")
         print("DEBUG: AI Dubber initialized with PyAnnote speaker diarization and voice matching")
         
-    async def dub_with_ai_analysis(self, audio_path: str, target_language: str, job_id: str) -> str:
+    async def dub_with_ai_analysis(self, audio_path: str, target_language: str, job_id: str, timing_aware: bool = True, use_simple_fallback: bool = False) -> str:
         """AI-powered dubbing with speaker diarization and intelligent voice matching"""
         try:
-            print(f"DEBUG: Starting AI-powered dubbing for job {job_id}")
+            print(f"DEBUG: Starting AI-powered dubbing for job {job_id} (timing_aware: {timing_aware}, fallback: {use_simple_fallback})")
+            
+            if use_simple_fallback:
+                print("DEBUG: Using simple fallback mode - skipping complex AI analysis")
+                return await self._simple_dubbing_fallback(audio_path, target_language, job_id, timing_aware)
             
             # Step 1: Get PyAnnote speaker diarization
+            print("DEBUG: Step 1 - Starting PyAnnote speaker diarization...")
             huggingface_token = os.getenv("HUGGINGFACE_TOKEN")
             if not huggingface_token:
                 raise Exception("HUGGINGFACE_TOKEN environment variable not set. Please add it to your .env file.")
             
+            print("DEBUG: Loading PyAnnote pipeline...")
             pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-3.1",
                 use_auth_token=huggingface_token
             )
+            print("DEBUG: Running PyAnnote diarization...")
             diarization = pipeline(audio_path)
+            print("DEBUG: PyAnnote diarization completed")
             print("DEBUG: PyAnnote diarization result:")
             print(diarization)
             
             # Step 2: AI-powered transcription with PyAnnote speaker diarization
+            print("DEBUG: Step 2 - Starting AI transcription with PyAnnote...")
             segments = await self._ai_transcribe_with_pyannote(audio_path, diarization)
+            print(f"DEBUG: AI transcription completed, {len(segments)} segments created")
             
             # Step 3: AI analysis of each speaker segment
+            print("DEBUG: Step 3 - Starting AI analysis of speakers...")
             segments = await self._analyze_speakers_ai(segments, audio_path)
+            print(f"DEBUG: AI analysis completed, {len(segments)} segments analyzed")
             
             # Step 4: Intelligent voice matching per speaker
+            print("DEBUG: Step 4 - Starting intelligent voice matching...")
             segments = await self._match_voices_intelligently(segments, target_language)
+            print(f"DEBUG: Voice matching completed, {len(segments)} segments matched")
             
-            # Step 5: Translate with context preservation
-            segments = await self._translate_with_context(segments, target_language)
+            # Step 5: Translate with context preservation (and timing awareness if enabled)
+            print(f"DEBUG: Step 5 - Starting translation step...")
+            segments = await self._translate_with_context(segments, target_language, timing_aware)
+            print(f"DEBUG: Translation completed, {len(segments)} segments processed")
             
-            # Step 6: Generate AI-enhanced speech
-            dubbed_audio_path = await self._generate_ai_speech(segments, target_language, job_id)
+            # Step 6: Generate AI-enhanced speech (with timing adjustment if enabled)
+            print(f"DEBUG: Step 6 - Starting speech generation step...")
+            dubbed_audio_path = await self._generate_ai_speech(segments, target_language, job_id, timing_aware)
+            print(f"DEBUG: Speech generation completed")
             
             return dubbed_audio_path
             
         except Exception as e:
-            raise Exception(f"AI dubbing failed: {str(e)}")
+            print(f"DEBUG: AI dubbing failed with error: {str(e)}")
+            print("DEBUG: Attempting simple fallback mode...")
+            try:
+                return await self._simple_dubbing_fallback(audio_path, target_language, job_id, timing_aware)
+            except Exception as fallback_error:
+                print(f"DEBUG: Simple fallback also failed: {str(fallback_error)}")
+                raise Exception(f"AI dubbing failed: {str(e)}")
+    
+    async def _simple_dubbing_fallback(self, audio_path: str, target_language: str, job_id: str, timing_aware: bool = True) -> str:
+        """Simple fallback dubbing without complex AI analysis"""
+        try:
+            print("DEBUG: Starting simple fallback dubbing...")
+            
+            # Step 1: Simple transcription with Whisper
+            print("DEBUG: Step 1 - Simple Whisper transcription...")
+            result = self.whisper_model.transcribe(
+                audio_path,
+                verbose=True,
+                word_timestamps=True,
+                language="en"
+            )
+            print("DEBUG: Simple transcription completed")
+            
+            # Step 2: Create simple segments
+            print("DEBUG: Step 2 - Creating simple segments...")
+            segments = []
+            for i, seg in enumerate(result.get('segments', [])):
+                segment = SpeakerSegment(
+                    start_time=seg.get('start', 0),
+                    end_time=seg.get('end', 0),
+                    text=seg.get('text', '').strip(),
+                    speaker_id=f"SPEAKER_{i:02d}",
+                    gender="unknown",
+                    confidence=1.0
+                )
+                segments.append(segment)
+            print(f"DEBUG: Created {len(segments)} simple segments")
+            
+            # Step 3: Simple translation
+            print("DEBUG: Step 3 - Simple translation...")
+            segments = await self._translate_with_context(segments, target_language, timing_aware)
+            print(f"DEBUG: Simple translation completed, {len(segments)} segments processed")
+            
+            # Step 4: Simple speech generation
+            print("DEBUG: Step 4 - Simple speech generation...")
+            dubbed_audio_path = await self._generate_ai_speech(segments, target_language, job_id, timing_aware)
+            print("DEBUG: Simple speech generation completed")
+            
+            return dubbed_audio_path
+            
+        except Exception as e:
+            print(f"DEBUG: Simple fallback failed: {str(e)}")
+            raise Exception(f"Simple fallback dubbing failed: {str(e)}")
     
     async def _ai_transcribe_with_pyannote(self, audio_path: str, diarization) -> List[SpeakerSegment]:
         """AI-powered transcription with PyAnnote speaker diarization"""
@@ -79,22 +149,26 @@ class AIDubber:
             print(f"DEBUG: Starting AI transcription with PyAnnote speaker detection")
             
             # Step 1: Use Whisper for transcription
+            print("DEBUG: Running Whisper transcription...")
             result = self.whisper_model.transcribe(
                 audio_path,
                 verbose=True,
                 word_timestamps=True,
                 language="en"
             )
+            print("DEBUG: Whisper transcription completed")
             print("-----------------Whisper result----------------- ")
             print(result)
             
             # Step 2: Align Whisper segments with PyAnnote diarization
+            print("DEBUG: Aligning Whisper segments with PyAnnote diarization...")
             segments = self._align_whisper_with_pyannote(result['segments'], diarization)
+            print(f"DEBUG: Alignment completed, created {len(segments)} segments with PyAnnote speaker detection")
             
-            print(f"DEBUG: Created {len(segments)} segments with PyAnnote speaker detection")
             return segments
             
         except Exception as e:
+            print(f"DEBUG: AI transcription failed with error: {str(e)}")
             raise Exception(f"AI transcription failed: {str(e)}")
     
     async def _ai_transcribe_with_speakers(self, audio_path: str) -> List[SpeakerSegment]:
@@ -600,50 +674,98 @@ class AIDubber:
             print(f"Voice match scoring error: {e}")
             return 0.0
     
-    async def _translate_with_context(self, segments: List[SpeakerSegment], target_language: str) -> List[SpeakerSegment]:
+    async def _translate_with_context(self, segments: List[SpeakerSegment], target_language: str, timing_aware: bool = True) -> List[SpeakerSegment]:
         """Translate with context preservation for better quality"""
         try:
-            print(f"DEBUG: Starting context-aware translation")
+            print(f"DEBUG: Starting context-aware translation (timing_aware: {timing_aware})")
             
-            # Translate each segment individually to avoid corruption
-            for i, segment in enumerate(segments):
+            # Convert segments to format expected by translator
+            segment_dicts = []
+            for segment in segments:
                 if segment.text.strip():
-                    try:
-                        # Clean the text first
-                        clean_text = segment.text.strip()
-                        
-                        # Skip if text is too short or contains corruption
-                        if len(clean_text) < 2 or "Anterior:" in clean_text:
-                            continue
-                        
-                        # Simple translation without context
-                        translated_text = await self.translator.translate(clean_text, target_language)
-                        
-                        # Clean the translated text
-                        if translated_text and not translated_text.startswith("Anterior:"):
-                            segment.text = translated_text.strip()
-                            print(f"DEBUG: Translated segment {i} (Speaker {segment.speaker_id}): {translated_text[:50]}...")
-                        else:
-                            print(f"DEBUG: Skipping corrupted translation for segment {i}")
+                    segment_dicts.append({
+                        "start": segment.start_time,
+                        "end": segment.end_time,
+                        "text": segment.text.strip(),
+                        "speaker_id": segment.speaker_id
+                    })
+            
+            # Use timing-aware translation if enabled
+            if timing_aware:
+                translated_segments = await self.translator.translate_segments(
+                    segment_dicts, target_language, timing_aware=True
+                )
+                
+                # Create a mapping from segment dicts to original segments
+                segment_mapping = {}
+                for i, seg_dict in enumerate(segment_dicts):
+                    for j, original_seg in enumerate(segments):
+                        if (original_seg.start_time == seg_dict["start"] and 
+                            original_seg.end_time == seg_dict["end"] and 
+                            original_seg.text.strip() == seg_dict["text"]):
+                            segment_mapping[i] = j
+                            break
+                
+                # Update original segments with translated text
+                for i, translated_seg in enumerate(translated_segments):
+                    if i in segment_mapping:
+                        original_idx = segment_mapping[i]
+                        if original_idx < len(segments):
+                            segments[original_idx].text = translated_seg.get("translated_text", segments[original_idx].text)
+                            print(f"DEBUG: Timing-aware translated segment {original_idx} (Speaker {segments[original_idx].speaker_id}): {segments[original_idx].text[:50]}...")
+            else:
+                # Regular translation
+                for i, segment in enumerate(segments):
+                    if segment.text.strip():
+                        try:
+                            # Clean the text first
+                            clean_text = segment.text.strip()
                             
-                    except Exception as e:
-                        print(f"DEBUG: Translation error for segment {i}: {e}")
-                        continue
+                            # Skip if text is too short or contains corruption
+                            if len(clean_text) < 2 or "Anterior:" in clean_text:
+                                continue
+                            
+                            # Simple translation without context
+                            translated_text = await self.translator.translate(clean_text, target_language)
+                            
+                            # Clean the translated text
+                            if translated_text and not translated_text.startswith("Anterior:"):
+                                segment.text = translated_text.strip()
+                                print(f"DEBUG: Translated segment {i} (Speaker {segment.speaker_id}): {translated_text[:50]}...")
+                            else:
+                                print(f"DEBUG: Skipping corrupted translation for segment {i}")
+                                
+                        except Exception as e:
+                            print(f"DEBUG: Translation error for segment {i}: {e}")
+                            continue
             
             return segments
             
         except Exception as e:
             raise Exception(f"Context translation failed: {str(e)}")
     
-    async def _generate_ai_speech(self, segments: List[SpeakerSegment], target_language: str, job_id: str) -> str:
+    async def _generate_ai_speech(self, segments: List[SpeakerSegment], target_language: str, job_id: str, timing_aware: bool = True) -> str:
         """Generate AI-enhanced speech with speaker-specific voices and timing"""
         try:
-            print(f"DEBUG: Starting AI speech generation with per-speaker voices")
+            print(f"DEBUG: Starting AI speech generation with per-speaker voices (timing_aware: {timing_aware})")
             
             # Create output directory
             output_dir = os.path.join(os.getenv("OUTPUT_DIR", "./outputs"), job_id)
             os.makedirs(output_dir, exist_ok=True)
             
+            if timing_aware:
+                # Use timing-aware speech generation with speed adjustment
+                return await self._generate_timing_aware_speech(segments, target_language, job_id, output_dir)
+            else:
+                # Use regular AI speech generation
+                return await self._generate_regular_ai_speech(segments, target_language, job_id, output_dir)
+            
+        except Exception as e:
+            raise Exception(f"AI speech generation failed: {str(e)}")
+    
+    async def _generate_regular_ai_speech(self, segments: List[SpeakerSegment], target_language: str, job_id: str, output_dir: str) -> str:
+        """Generate regular AI-enhanced speech with speaker-specific voices"""
+        try:
             # Group segments by speaker for voice consistency
             speaker_segments = defaultdict(list)
             for segment in segments:
@@ -692,7 +814,57 @@ class AIDubber:
             return final_audio_path
             
         except Exception as e:
-            raise Exception(f"AI speech generation failed: {str(e)}")
+            raise Exception(f"Regular AI speech generation failed: {str(e)}")
+    
+    async def _generate_timing_aware_speech(self, segments: List[SpeakerSegment], target_language: str, job_id: str, output_dir: str) -> str:
+        """Generate timing-aware speech with speed adjustment"""
+        try:
+            print(f"DEBUG: Starting timing-aware speech generation")
+            
+            # Convert segments to format expected by TTS service
+            segment_dicts = []
+            for segment in segments:
+                if segment.text.strip():
+                    # Ensure valid timing
+                    start_time = max(0, segment.start_time)
+                    end_time = max(start_time + 0.1, segment.end_time)  # Minimum 0.1s duration
+                    
+                    segment_dicts.append({
+                        "start": start_time,
+                        "end": end_time,
+                        "translated_text": segment.text.strip(),
+                        "original_duration": end_time - start_time,
+                        "speaker_id": segment.speaker_id
+                    })
+            
+            # Check if we have any segments to process
+            if not segment_dicts:
+                print("DEBUG: No valid segments found for timing-aware speech generation")
+                # Create a fallback audio file
+                fallback_path = os.path.join(output_dir, "dubbed_audio.mp3")
+                from pydub import AudioSegment
+                silent_audio = AudioSegment.silent(duration=1000)  # 1 second of silence
+                silent_audio.export(fallback_path, format="mp3")
+                return fallback_path
+            
+            print(f"DEBUG: Processing {len(segment_dicts)} segments for timing-aware speech")
+            
+            # Use TTS service with timing and speed adjustment
+            dubbed_audio_path = await self.tts_service.generate_speech_with_timing(
+                segment_dicts, target_language, job_id, adjust_speed=True
+            )
+            
+            print(f"DEBUG: Timing-aware AI dubbing completed successfully")
+            return dubbed_audio_path
+            
+        except Exception as e:
+            print(f"DEBUG: Timing-aware speech generation failed: {str(e)}")
+            # Create a fallback audio file
+            fallback_path = os.path.join(output_dir, "dubbed_audio.mp3")
+            from pydub import AudioSegment
+            silent_audio = AudioSegment.silent(duration=1000)  # 1 second of silence
+            silent_audio.export(fallback_path, format="mp3")
+            return fallback_path
     
     async def _combine_speaker_audio_simple(self, speaker_audio_files: Dict, output_dir: str) -> str:
         """Simple audio combination without complex timestamp alignment"""

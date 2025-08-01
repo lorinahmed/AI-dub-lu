@@ -10,9 +10,42 @@ An AI-powered application that can dub YouTube videos into any language using sp
 - Generate high-quality speech using ElevenLabs TTS
 - **AI-powered speaker diarization using PyAnnote**
 - **Intelligent voice matching with ElevenLabs voices**
+- **AI-powered speaker diarization using PyAnnote**
+- **Intelligent voice matching with ElevenLabs voices**
+- **Timing-aware translation and speed adjustment (always enabled for AI dubbing)**
 - Synchronize new audio with original video
 - Support for multiple languages
 - Real-time job status tracking
+
+## AI-Enhanced Dubbing with Timing Awareness
+
+The AI-Enhanced dubbing feature automatically includes timing-aware translation and speed adjustment to ensure that dubbed audio matches the original dialogue timing:
+
+### 1. Timing-Aware Translation
+- Uses GPT to translate text while preserving timing constraints
+- Calculates target word count based on original segment duration
+- Ensures translated text can be spoken within the original time frame
+- Preserves meaning while adapting length for natural speech
+
+### 2. Adjustable TTS Speed
+- Automatically adjusts TTS playback speed to match original timing
+- Limits speed adjustments to ±15% to maintain natural voice quality
+- Processes each dialogue segment individually for precise timing
+- Combines segments with proper synchronization
+
+### 3. AI-Enhanced Features
+- Combines timing awareness with speaker diarization
+- Maintains voice consistency per speaker
+- Intelligent voice matching with timing constraints
+- Preserves speaker characteristics while adjusting timing
+
+### How It Works
+1. **Speaker Diarization**: Identify different speakers in the audio
+2. **Transcription**: Extract audio segments with precise timing using Whisper
+3. **Timing-Aware Translation**: Use GPT to translate each segment with timing constraints
+4. **Voice Matching**: Match appropriate voices to each speaker
+5. **TTS Generation**: Generate speech for each segment with speed adjustment
+6. **Synchronization**: Combine segments with original timing and sync with video
 
 ## Prerequisites
 
@@ -21,6 +54,7 @@ An AI-powered application that can dub YouTube videos into any language using sp
 - API keys for:
   - ElevenLabs (for high-quality TTS)
   - Google Translate (optional, for translation)
+  - OpenAI (for timing-aware translation)
 
 ## Installation
 
@@ -137,6 +171,7 @@ Submit a YouTube video for AI-enhanced dubbing with speaker diarization and inte
 - `target_language` (required): Target language code
 - `source_language` (optional): Source language code
 - `use_ai_analysis` (optional): Enable AI analysis (default: true)
+- `timing_aware` (optional): Enable timing-aware translation and speed adjustment (default: true for AI dubbing)
 
 **Response:**
 ```json

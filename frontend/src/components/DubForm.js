@@ -5,7 +5,8 @@ const DubForm = ({ onSubmit }) => {
   const [formData, setFormData] = useState({
     youtube_url: '',
     target_language: 'es',
-    source_language: ''
+    source_language: '',
+    dubbing_type: 'regular'
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -130,7 +131,7 @@ const DubForm = ({ onSubmit }) => {
       }
 
       await onSubmit(formData);
-      setFormData({ youtube_url: '', target_language: 'es', source_language: '' });
+      setFormData({ youtube_url: '', target_language: 'es', source_language: '', dubbing_type: 'regular' });
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'An error occurred');
     } finally {
@@ -227,6 +228,48 @@ const DubForm = ({ onSubmit }) => {
             <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
               <Globe className="h-5 w-5 text-gray-400" />
             </div>
+          </div>
+        </div>
+
+        {/* Dubbing Type Selection */}
+        <div>
+          <label htmlFor="dubbing_type" className="block text-sm font-medium text-gray-700 mb-2">
+            Dubbing Type
+          </label>
+          <div className="space-y-3">
+            <div className="flex items-center">
+              <input
+                type="radio"
+                id="dubbing_type_regular"
+                name="dubbing_type"
+                value="regular"
+                checked={formData.dubbing_type === 'regular'}
+                onChange={handleInputChange}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+              />
+              <label htmlFor="dubbing_type_regular" className="ml-3 block text-sm font-medium text-gray-700">
+                <span className="font-semibold">Regular Dubbing</span>
+                <span className="block text-xs text-gray-500">Standard dubbing with automatic gender detection</span>
+              </label>
+            </div>
+            
+            <div className="flex items-center">
+              <input
+                type="radio"
+                id="dubbing_type_ai"
+                name="dubbing_type"
+                value="ai"
+                checked={formData.dubbing_type === 'ai'}
+                onChange={handleInputChange}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+              />
+              <label htmlFor="dubbing_type_ai" className="ml-3 block text-sm font-medium text-gray-700">
+                <span className="font-semibold">AI-Enhanced Dubbing</span>
+                <span className="block text-xs text-gray-500">Advanced dubbing with speaker diarization, voice matching, and timing-aware translation</span>
+              </label>
+            </div>
+            
+
           </div>
         </div>
 

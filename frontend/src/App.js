@@ -29,7 +29,26 @@ function App() {
 
   const handleDubSubmit = async (formData) => {
     try {
-      const response = await axios.post('/dub', formData);
+      let endpoint = '/dub';
+      let requestData = {
+        youtube_url: formData.youtube_url,
+        target_language: formData.target_language,
+        source_language: formData.source_language || null
+      };
+
+      // Determine endpoint based on dubbing type
+      switch (formData.dubbing_type) {
+        case 'ai':
+          endpoint = '/dub/ai';
+          requestData.use_ai_analysis = true;
+          requestData.timing_aware = true; // Always timing-aware for AI dubbing
+          break;
+        default:
+          endpoint = '/dub';
+          break;
+      }
+
+      const response = await axios.post(endpoint, requestData);
       const jobId = response.data.job_id;
       setCurrentJob({ id: jobId, ...response.data });
       loadRecentJobs(); // Refresh job list
