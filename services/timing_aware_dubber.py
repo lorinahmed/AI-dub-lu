@@ -13,7 +13,7 @@ class TimingAwareDubber:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
         self.words_per_minute = 150  # Average speaking rate
-        self.max_speed_adjustment = 0.15  # Maximum 15% speed adjustment
+        self.max_speed_adjustment = 0.30  # Maximum 30% speed adjustment
         
         if self.openai_api_key:
             openai.api_key = self.openai_api_key

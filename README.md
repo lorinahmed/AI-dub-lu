@@ -151,6 +151,12 @@ curl -X POST "http://localhost:8000/dub" \
   }'
 ```
 
+curl -X POST "http://localhost:8000/dub/ai" -H "Content-Type: application/json" -d '{
+    "youtube_url": "https://www.youtube.com/watch?v=rQeNkrhrGDM",
+    "target_language": "hi",
+    "source_language": "en"
+  }'
+
 #### 2. Submit AI-Powered Dubbing Job
 **POST** `/dub/ai`
 

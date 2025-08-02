@@ -26,6 +26,7 @@ class SpeakerSegment:
     language: str = "en"
     matched_voice_id: str = None
     matched_voice_name: str = None
+    group_id: str = None  # Track which group this segment belongs to
 
 class AIDubber:
     def __init__(self):
@@ -679,56 +680,36 @@ class AIDubber:
         try:
             print(f"DEBUG: Starting context-aware translation (timing_aware: {timing_aware})")
             
-            # Convert segments to format expected by translator
-            segment_dicts = []
-            for segment in segments:
-                if segment.text.strip():
-                    segment_dicts.append({
-                        "start": segment.start_time,
-                        "end": segment.end_time,
-                        "text": segment.text.strip(),
-                        "speaker_id": segment.speaker_id
-                    })
-            
-            # Use timing-aware translation if enabled
             if timing_aware:
-                translated_segments = await self.translator.translate_segments(
-                    segment_dicts, target_language, timing_aware=True
-                )
+                # Group consecutive segments by speaker for better context
+                grouped_segments = self._group_consecutive_segments_by_speaker(segments)
+                print(f"DEBUG: Grouped {len(segments)} individual segments into {len(grouped_segments)} meaningful chunks")
                 
-                # Create a mapping from segment dicts to original segments
-                segment_mapping = {}
-                for i, seg_dict in enumerate(segment_dicts):
-                    for j, original_seg in enumerate(segments):
-                        if (original_seg.start_time == seg_dict["start"] and 
-                            original_seg.end_time == seg_dict["end"] and 
-                            original_seg.text.strip() == seg_dict["text"]):
-                            segment_mapping[i] = j
-                            break
+                # Translate each group as a whole
+                translated_groups = await self._translate_segment_groups(grouped_segments, target_language)
                 
-                # Update original segments with translated text
-                for i, translated_seg in enumerate(translated_segments):
-                    if i in segment_mapping:
-                        original_idx = segment_mapping[i]
-                        if original_idx < len(segments):
-                            segments[original_idx].text = translated_seg.get("translated_text", segments[original_idx].text)
-                            print(f"DEBUG: Timing-aware translated segment {original_idx} (Speaker {segments[original_idx].speaker_id}): {segments[original_idx].text[:50]}...")
+                # Store the translated groups for TTS generation
+                for i, group in enumerate(translated_groups):
+                    group["group_id"] = f"group_{i}"
+                
+                # Store groups in a class variable for TTS to use
+                self.translated_groups = translated_groups
+                
+                print(f"DEBUG: Stored {len(translated_groups)} translated groups for TTS generation")
+                
+                # Return segments as-is (they won't be used for TTS anyway)
+                return segments
             else:
-                # Regular translation
+                # Regular translation (fallback)
                 for i, segment in enumerate(segments):
                     if segment.text.strip():
                         try:
-                            # Clean the text first
                             clean_text = segment.text.strip()
-                            
-                            # Skip if text is too short or contains corruption
                             if len(clean_text) < 2 or "Anterior:" in clean_text:
                                 continue
                             
-                            # Simple translation without context
                             translated_text = await self.translator.translate(clean_text, target_language)
                             
-                            # Clean the translated text
                             if translated_text and not translated_text.startswith("Anterior:"):
                                 segment.text = translated_text.strip()
                                 print(f"DEBUG: Translated segment {i} (Speaker {segment.speaker_id}): {translated_text[:50]}...")
@@ -743,6 +724,164 @@ class AIDubber:
             
         except Exception as e:
             raise Exception(f"Context translation failed: {str(e)}")
+    
+    def _group_consecutive_segments_by_speaker(self, segments: List[SpeakerSegment]) -> List[Dict]:
+        """Group consecutive segments from the same speaker into meaningful chunks"""
+        try:
+            if not segments:
+                return []
+            
+            grouped_chunks = []
+            current_group = {
+                "speaker_id": segments[0].speaker_id,
+                "segments": [segments[0]],
+                "start_time": segments[0].start_time,
+                "end_time": segments[0].end_time,
+                "text": segments[0].text.strip()
+            }
+            
+            print(f"DEBUG: === DETAILED GROUPING ANALYSIS ===")
+            print(f"DEBUG: Processing {len(segments)} segments...")
+            
+            for i in range(1, len(segments)):
+                current_segment = segments[i]
+                previous_segment = segments[i-1]
+                
+                print(f"DEBUG: Segment {i}: Speaker {current_segment.speaker_id}, "
+                      f"Time: {current_segment.start_time:.1f}s-{current_segment.end_time:.1f}s, "
+                      f"Text: '{current_segment.text.strip()[:50]}...'")
+                
+                # Check if we should continue the current group
+                should_continue = (
+                    current_segment.speaker_id == current_group["speaker_id"] and
+                    self._should_combine_segments(previous_segment, current_segment)
+                )
+                
+                if should_continue:
+                    # Add to current group
+                    current_group["segments"].append(current_segment)
+                    current_group["end_time"] = current_segment.end_time
+                    current_group["text"] += " " + current_segment.text.strip()
+                    print(f"DEBUG: ✓ Added to current group (now {len(current_group['segments'])} segments)")
+                else:
+                    # Finalize current group and start new one
+                    if current_group["text"].strip():
+                        grouped_chunks.append(current_group)
+                        print(f"DEBUG: Finalized group with {len(current_group['segments'])} segments: '{current_group['text'][:100]}...'")
+                    
+                    # Start new group
+                    current_group = {
+                        "speaker_id": current_segment.speaker_id,
+                        "segments": [current_segment],
+                        "start_time": current_segment.start_time,
+                        "end_time": current_segment.end_time,
+                        "text": current_segment.text.strip()
+                    }
+                    print(f"DEBUG: Started new group for speaker {current_segment.speaker_id}")
+            
+            # Add the last group
+            if current_group["text"].strip():
+                grouped_chunks.append(current_group)
+                print(f"DEBUG: Finalized last group with {len(current_group['segments'])} segments: '{current_group['text'][:100]}...'")
+            
+            print(f"DEBUG: Created {len(grouped_chunks)} grouped chunks:")
+            for i, chunk in enumerate(grouped_chunks):
+                print(f"  Chunk {i}: Speaker {chunk['speaker_id']}, {len(chunk['segments'])} segments, "
+                      f"Duration: {chunk['end_time'] - chunk['start_time']:.1f}s, "
+                      f"Text: {chunk['text'][:100]}...")
+            
+            return grouped_chunks
+            
+        except Exception as e:
+            print(f"DEBUG: Error grouping segments: {e}")
+            # Fallback: return individual segments as groups
+            return [{"speaker_id": seg.speaker_id, "segments": [seg], 
+                    "start_time": seg.start_time, "end_time": seg.end_time, 
+                    "text": seg.text.strip()} for seg in segments if seg.text.strip()]
+    
+    def _should_combine_segments(self, prev_segment: SpeakerSegment, curr_segment: SpeakerSegment) -> bool:
+        """Determine if two consecutive segments should be combined"""
+        try:
+            # Check for natural breaks in speech
+            time_gap = curr_segment.start_time - prev_segment.end_time
+            
+            # Combine if:
+            # 1. Small time gap (less than 2 seconds)
+            # 2. Not too long combined text (max 400 characters)
+            # Note: Removed punctuation check - let translation service handle full context
+            
+            prev_text = prev_segment.text.strip()
+            curr_text = curr_segment.text.strip()
+            combined_length = len(prev_text) + len(curr_text)
+            
+            # Decision logic
+            if time_gap > 2.0:  # Gap too large
+                print(f"DEBUG: NOT combining - time gap too large: {time_gap:.1f}s")
+                return False
+            elif combined_length > 400:  # Text too long
+                print(f"DEBUG: NOT combining - combined text too long: {combined_length} chars")
+                return False
+            else:
+                print(f"DEBUG: WILL combine - gap: {time_gap:.1f}s, length: {combined_length} chars")
+                return True
+                
+        except Exception as e:
+            print(f"DEBUG: Error in segment combination logic: {e}")
+            return False
+    
+    async def _translate_segment_groups(self, grouped_segments: List[Dict], target_language: str) -> List[Dict]:
+        """Translate grouped segments as whole units for better context"""
+        try:
+            translated_groups = []
+            
+            for i, group in enumerate(grouped_segments):
+                if not group["text"].strip():
+                    continue
+                
+                try:
+                    print(f"DEBUG: Translating group {i} (Speaker {group['speaker_id']}):")
+                    print(f"  Original: {group['text']}")
+                    
+                    # Use timing-aware translation for the grouped text
+                    segment_dict = {
+                        "start": group["start_time"],
+                        "end": group["end_time"],
+                        "text": group["text"].strip(),
+                        "original_duration": group["end_time"] - group["start_time"]
+                    }
+                    
+                    print(f"DEBUG: Calling timing-aware translation for group {i}:")
+                    print(f"  Duration: {group['end_time'] - group['start_time']:.1f}s")
+                    print(f"  Text length: {len(group['text'].strip())} chars")
+                    
+                    translated_segments = await self.translator.translate_segments(
+                        [segment_dict], target_language, timing_aware=True
+                    )
+                    
+                    if translated_segments and len(translated_segments) > 0:
+                        translated_text = translated_segments[0].get("translated_text", group["text"])
+                        group["translated_text"] = translated_text
+                        print(f"  Translated: {translated_text}")
+                    else:
+                        # Fallback to simple translation
+                        translated_text = await self.translator.translate(group["text"].strip(), target_language)
+                        group["translated_text"] = translated_text
+                        print(f"  Fallback Translated: {translated_text}")
+                    
+                    print(f"  ---")
+                    translated_groups.append(group)
+                    
+                except Exception as e:
+                    print(f"DEBUG: Error translating group {i}: {e}")
+                    # Keep original text as fallback
+                    group["translated_text"] = group["text"]
+                    translated_groups.append(group)
+            
+            return translated_groups
+            
+        except Exception as e:
+            print(f"DEBUG: Error in group translation: {e}")
+            return grouped_segments
     
     async def _generate_ai_speech(self, segments: List[SpeakerSegment], target_language: str, job_id: str, timing_aware: bool = True) -> str:
         """Generate AI-enhanced speech with speaker-specific voices and timing"""
@@ -821,25 +960,57 @@ class AIDubber:
         try:
             print(f"DEBUG: Starting timing-aware speech generation")
             
-            # Convert segments to format expected by TTS service
-            segment_dicts = []
-            for segment in segments:
-                if segment.text.strip():
-                    # Ensure valid timing
-                    start_time = max(0, segment.start_time)
-                    end_time = max(start_time + 0.1, segment.end_time)  # Minimum 0.1s duration
-                    
-                    segment_dicts.append({
-                        "start": start_time,
-                        "end": end_time,
-                        "translated_text": segment.text.strip(),
-                        "original_duration": end_time - start_time,
-                        "speaker_id": segment.speaker_id
-                    })
+            # Use the stored translated groups directly instead of re-grouping segments
+            if hasattr(self, 'translated_groups') and self.translated_groups:
+                group_dicts = []
+                
+                for i, group in enumerate(self.translated_groups):
+                    if group.get("translated_text"):
+                        group_dicts.append({
+                            "start": group["start_time"],
+                            "end": group["end_time"],
+                            "translated_text": group["translated_text"],
+                            "original_duration": group["end_time"] - group["start_time"],
+                            "speaker_id": group["speaker_id"],
+                            "group_id": group["group_id"]
+                        })
+                        print(f"DEBUG: Using translated group {i}:")
+                        print(f"  Speaker: {group['speaker_id']}")
+                        print(f"  Timing: {group['start_time']:.1f}s - {group['end_time']:.1f}s")
+                        print(f"  Duration: {group['end_time'] - group['start_time']:.1f}s")
+                        print(f"  Full Text: {group['translated_text']}")
+                        print(f"  ---")
+                
+                print(f"DEBUG: Using {len(group_dicts)} translated groups for TTS")
+            else:
+                # Fallback to segment-based approach
+                print(f"DEBUG: No translated groups found, falling back to segment-based approach")
+                group_segments = {}
+                for segment in segments:
+                    if segment.group_id:
+                        if segment.group_id not in group_segments:
+                            group_segments[segment.group_id] = []
+                        group_segments[segment.group_id].append(segment)
+                
+                group_dicts = []
+                for group_id, group_segments_list in group_segments.items():
+                    if group_segments_list:
+                        first_segment = group_segments_list[0]
+                        group_start = min(seg.start_time for seg in group_segments_list)
+                        group_end = max(seg.end_time for seg in group_segments_list)
+                        
+                        group_dicts.append({
+                            "start": group_start,
+                            "end": group_end,
+                            "translated_text": first_segment.text.strip(),
+                            "original_duration": group_end - group_start,
+                            "speaker_id": first_segment.speaker_id,
+                            "group_id": group_id
+                        })
             
-            # Check if we have any segments to process
-            if not segment_dicts:
-                print("DEBUG: No valid segments found for timing-aware speech generation")
+            # Check if we have any groups to process
+            if not group_dicts:
+                print("DEBUG: No valid groups found for timing-aware speech generation")
                 # Create a fallback audio file
                 fallback_path = os.path.join(output_dir, "dubbed_audio.mp3")
                 from pydub import AudioSegment
@@ -847,11 +1018,11 @@ class AIDubber:
                 silent_audio.export(fallback_path, format="mp3")
                 return fallback_path
             
-            print(f"DEBUG: Processing {len(segment_dicts)} segments for timing-aware speech")
+            print(f"DEBUG: Processing {len(group_dicts)} groups for timing-aware speech")
             
             # Use TTS service with timing and speed adjustment
             dubbed_audio_path = await self.tts_service.generate_speech_with_timing(
-                segment_dicts, target_language, job_id, adjust_speed=True
+                group_dicts, target_language, job_id, adjust_speed=True
             )
             
             print(f"DEBUG: Timing-aware AI dubbing completed successfully")

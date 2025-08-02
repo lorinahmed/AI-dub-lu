@@ -290,7 +290,11 @@ class TTSService:
                     segment_audio = AudioSegment.from_mp3(temp_file.name)
                     
                     if adjust_speed and original_duration > 0:
+                        print(f"DEBUG: Adjusting audio speed for segment:")
+                        print(f"  Original duration: {original_duration:.1f}s")
+                        print(f"  Generated duration: {len(segment_audio)/1000:.1f}s")
                         segment_audio = self._adjust_audio_speed(segment_audio, original_duration)
+                        print(f"  Adjusted duration: {len(segment_audio)/1000:.1f}s")
                     
                     audio_segments.append({
                         "audio": segment_audio,
@@ -324,8 +328,8 @@ class TTSService:
             # Calculate speed ratio
             speed_ratio = current_duration / target_duration
             
-            # Limit speed adjustment to prevent unnatural speech (max ±15%)
-            max_speed_adjustment = 0.15
+            # Limit speed adjustment to prevent unnatural speech (max ±30%)
+            max_speed_adjustment = 0.30
             if speed_ratio > (1 + max_speed_adjustment):
                 speed_ratio = 1 + max_speed_adjustment
             elif speed_ratio < (1 - max_speed_adjustment):
@@ -343,14 +347,17 @@ class TTSService:
             return audio
     
     def _combine_audio_segments(self, audio_segments: list) -> AudioSegment:
-        """Combine audio segments with proper timing"""
+        """Combine audio segments with proper timing - maintaining original positions"""
         try:
             if not audio_segments:
                 # Return a short silent audio if no segments
                 return AudioSegment.silent(duration=1000)  # 1 second of silence
             
+            # Sort segments by start time to ensure proper order
+            sorted_segments = sorted(audio_segments, key=lambda x: x.get("start", 0))
+            
             # Find total duration
-            total_duration = max([seg["end"] for seg in audio_segments]) if audio_segments else 1.0
+            total_duration = max([seg["end"] for seg in sorted_segments]) if sorted_segments else 1.0
             
             # Ensure minimum duration
             if total_duration <= 0:
@@ -359,15 +366,24 @@ class TTSService:
             # Create silent audio track
             combined_audio = AudioSegment.silent(duration=total_duration * 1000)  # Convert to milliseconds
             
-            # Overlay each segment at its correct timestamp
-            for segment in audio_segments:
+            # Place each segment at its correct timestamp
+            for segment in sorted_segments:
                 if "audio" in segment and "start" in segment:
                     start_time = segment["start"] * 1000  # Convert to milliseconds
                     audio = segment["audio"]
                     
                     # Ensure start_time is within bounds
                     if start_time >= 0 and start_time < len(combined_audio):
-                        # Overlay the audio segment
+                        # Check if this segment would exceed the total duration
+                        if start_time + len(audio) > len(combined_audio):
+                            # Trim the audio to fit
+                            remaining_duration = len(combined_audio) - start_time
+                            if remaining_duration > 0:
+                                audio = audio[:remaining_duration]
+                            else:
+                                continue  # Skip this segment if no space left
+                        
+                        # Place the audio segment at its correct position
                         combined_audio = combined_audio.overlay(audio, position=start_time)
             
             return combined_audio
@@ -376,6 +392,8 @@ class TTSService:
             print(f"Audio combination failed: {str(e)}")
             # Return a fallback silent audio
             return AudioSegment.silent(duration=1000)
+    
+
     
     def get_supported_languages(self) -> list:
         """Get list of supported languages for TTS"""
