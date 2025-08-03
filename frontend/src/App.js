@@ -29,26 +29,13 @@ function App() {
 
   const handleDubSubmit = async (formData) => {
     try {
-      let endpoint = '/dub';
-      let requestData = {
+      const requestData = {
         youtube_url: formData.youtube_url,
         target_language: formData.target_language,
         source_language: formData.source_language || null
       };
 
-      // Determine endpoint based on dubbing type
-      switch (formData.dubbing_type) {
-        case 'ai':
-          endpoint = '/dub/ai';
-          requestData.use_ai_analysis = true;
-          requestData.timing_aware = true; // Always timing-aware for AI dubbing
-          break;
-        default:
-          endpoint = '/dub';
-          break;
-      }
-
-      const response = await axios.post(endpoint, requestData);
+      const response = await axios.post('/dub', requestData);
       const jobId = response.data.job_id;
       setCurrentJob({ id: jobId, ...response.data });
       loadRecentJobs(); // Refresh job list
@@ -94,11 +81,11 @@ function App() {
                   {/* Hero Section */}
                   <div className="text-center">
                     <h2 className="text-4xl font-bold text-gray-900 mb-4">
-                      Dub YouTube Videos in Any Language
+                      AI-Powered YouTube Video Dubbing
                     </h2>
                     <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-                      Transform any YouTube video with AI-powered dubbing. 
-                      Upload a video URL, select your target language, and get a professionally dubbed version.
+                      Transform any YouTube video with advanced AI dubbing featuring speaker diarization, 
+                      voice matching, and timing-aware translation. Get professional-quality dubbed videos in any language.
                     </p>
                   </div>
 

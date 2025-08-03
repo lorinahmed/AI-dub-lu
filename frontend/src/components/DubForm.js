@@ -5,8 +5,7 @@ const DubForm = ({ onSubmit }) => {
   const [formData, setFormData] = useState({
     youtube_url: '',
     target_language: 'es',
-    source_language: '',
-    dubbing_type: 'regular'
+    source_language: ''
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -131,7 +130,7 @@ const DubForm = ({ onSubmit }) => {
       }
 
       await onSubmit(formData);
-      setFormData({ youtube_url: '', target_language: 'es', source_language: '', dubbing_type: 'regular' });
+      setFormData({ youtube_url: '', target_language: 'es', source_language: '' });
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'An error occurred');
     } finally {
@@ -231,48 +230,6 @@ const DubForm = ({ onSubmit }) => {
           </div>
         </div>
 
-        {/* Dubbing Type Selection */}
-        <div>
-          <label htmlFor="dubbing_type" className="block text-sm font-medium text-gray-700 mb-2">
-            Dubbing Type
-          </label>
-          <div className="space-y-3">
-            <div className="flex items-center">
-              <input
-                type="radio"
-                id="dubbing_type_regular"
-                name="dubbing_type"
-                value="regular"
-                checked={formData.dubbing_type === 'regular'}
-                onChange={handleInputChange}
-                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-              />
-              <label htmlFor="dubbing_type_regular" className="ml-3 block text-sm font-medium text-gray-700">
-                <span className="font-semibold">Regular Dubbing</span>
-                <span className="block text-xs text-gray-500">Standard dubbing with automatic gender detection</span>
-              </label>
-            </div>
-            
-            <div className="flex items-center">
-              <input
-                type="radio"
-                id="dubbing_type_ai"
-                name="dubbing_type"
-                value="ai"
-                checked={formData.dubbing_type === 'ai'}
-                onChange={handleInputChange}
-                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-              />
-              <label htmlFor="dubbing_type_ai" className="ml-3 block text-sm font-medium text-gray-700">
-                <span className="font-semibold">AI-Enhanced Dubbing</span>
-                <span className="block text-xs text-gray-500">Advanced dubbing with speaker diarization, voice matching, and timing-aware translation</span>
-              </label>
-            </div>
-            
-
-          </div>
-        </div>
-
         {/* Error Message */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -294,7 +251,7 @@ const DubForm = ({ onSubmit }) => {
           ) : (
             <>
               <Play className="h-5 w-5" />
-              <span>Start Dubbing</span>
+              <span>Start AI Dubbing</span>
             </>
           )}
         </button>
@@ -302,12 +259,12 @@ const DubForm = ({ onSubmit }) => {
 
       {/* Info Section */}
       <div className="mt-8 p-4 bg-blue-50 rounded-lg">
-        <h3 className="text-sm font-medium text-blue-900 mb-2">How it works:</h3>
+        <h3 className="text-sm font-medium text-blue-900 mb-2">How AI dubbing works:</h3>
         <ol className="text-sm text-blue-800 space-y-1">
           <li>1. Download the YouTube video</li>
-          <li>2. Extract and transcribe the audio</li>
-          <li>3. Translate the text to your target language</li>
-          <li>4. Generate natural-sounding speech</li>
+          <li>2. Extract and analyze audio with speaker diarization</li>
+          <li>3. Transcribe and translate with timing awareness</li>
+          <li>4. Generate natural-sounding speech with voice matching</li>
           <li>5. Synchronize the new audio with the video</li>
         </ol>
       </div>

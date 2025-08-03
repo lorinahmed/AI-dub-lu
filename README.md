@@ -1,75 +1,69 @@
 # YouTube Video Dubber
 
-An AI-powered application that can dub YouTube videos into any language using speech recognition, translation, and text-to-speech synthesis with ElevenLabs.
+An AI-powered application that can dub YouTube videos into any language using advanced AI features including speaker diarization, intelligent voice matching, and timing-aware translation.
 
 ## Features
 
 - Download YouTube videos
-- Extract and transcribe audio using OpenAI Whisper
-- Translate transcriptions to target language
-- Generate high-quality speech using ElevenLabs TTS
 - **AI-powered speaker diarization using PyAnnote**
 - **Intelligent voice matching with ElevenLabs voices**
-- **AI-powered speaker diarization using PyAnnote**
-- **Intelligent voice matching with ElevenLabs voices**
-- **Timing-aware translation and speed adjustment (always enabled for AI dubbing)**
+- **Timing-aware translation and speed adjustment**
+- **Advanced transcription using OpenAI Whisper**
+- **High-quality speech generation using ElevenLabs TTS**
+- **Context-aware translation using GPT**
 - Synchronize new audio with original video
 - Support for multiple languages
 - Real-time job status tracking
 
-## AI-Enhanced Dubbing with Timing Awareness
+## AI-Enhanced Dubbing Features
 
-The AI-Enhanced dubbing feature automatically includes timing-aware translation and speed adjustment to ensure that dubbed audio matches the original dialogue timing:
+The AI-powered dubbing automatically includes advanced features for professional-quality results:
 
-### 1. Timing-Aware Translation
+### 1. Speaker Diarization
+- Automatically identifies different speakers in the audio
+- Assigns unique speaker IDs for consistent voice matching
+- Handles multiple speakers in complex conversations
+
+### 2. Intelligent Voice Matching
+- Analyzes speaker characteristics (gender, age, tone)
+- Matches appropriate ElevenLabs voices to each speaker
+- Maintains voice consistency throughout the video
+
+### 3. Timing-Aware Translation
 - Uses GPT to translate text while preserving timing constraints
 - Calculates target word count based on original segment duration
 - Ensures translated text can be spoken within the original time frame
 - Preserves meaning while adapting length for natural speech
 
-### 2. Adjustable TTS Speed
+### 4. Adjustable TTS Speed
 - Automatically adjusts TTS playback speed to match original timing
 - Limits speed adjustments to ±15% to maintain natural voice quality
 - Processes each dialogue segment individually for precise timing
 - Combines segments with proper synchronization
 
-### 3. AI-Enhanced Features
-- Combines timing awareness with speaker diarization
-- Maintains voice consistency per speaker
-- Intelligent voice matching with timing constraints
-- Preserves speaker characteristics while adjusting timing
-
 ### How It Works
-1. **Speaker Diarization**: Identify different speakers in the audio
+1. **Speaker Diarization**: Identify different speakers in the audio using PyAnnote
 2. **Transcription**: Extract audio segments with precise timing using Whisper
-3. **Timing-Aware Translation**: Use GPT to translate each segment with timing constraints
-4. **Voice Matching**: Match appropriate voices to each speaker
-5. **TTS Generation**: Generate speech for each segment with speed adjustment
-6. **Synchronization**: Combine segments with original timing and sync with video
+3. **AI Analysis**: Analyze speaker characteristics and voice profiles
+4. **Timing-Aware Translation**: Use GPT to translate each segment with timing constraints
+5. **Voice Matching**: Match appropriate ElevenLabs voices to each speaker
+6. **TTS Generation**: Generate speech for each segment with speed adjustment
+7. **Synchronization**: Combine segments with original timing and sync with video
 
 ## 🎬 Demo
 
 See the AI-powered dubbing in action! Below are examples of original YouTube videos and their dubbed versions in different languages.
 
-### Example 1: English to Hindi Dubbing
+### Example 1: English to Hindi and Espanol Dubbing
 
 **Original Video (English)**
 [![Original Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=-gFzdusTj3g)
 
 **Dubbed Video (Hindi)**
-[![Dubbed Video](https://img.youtube.com/vi/rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=rVxlizvcAlM)
+[![Dubbed Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=rVxlizvcAlM)
 
-*Note: Replace `PLACEHOLDER_DUBBED_VIDEO_ID` with your actual dubbed video ID*
-
----
-
-### Example 2: English to Hindi Dubbing
-
-**Original Video (English)**
-[![Original Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=-gFzdusTj3g)
-
-**Dubbed Video (Hindi)**
-[![Dubbed Video](https://img.youtube.com/vi/rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=rVxlizvcAlM)
+**Dubbed Video (Espanol)**
+[![Dubbed Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=Oks3YCNRol4)
 
 ### Key Features Demonstrated
 
@@ -85,7 +79,7 @@ See the AI-powered dubbing in action! Below are examples of original YouTube vid
 - FFmpeg installed on your system
 - API keys for:
   - ElevenLabs (for high-quality TTS)
-  - Google Translate (optional, for translation)
+  - HuggingFace (for PyAnnote speaker diarization)
   - OpenAI (for timing-aware translation)
 
 ## Installation
@@ -133,7 +127,7 @@ npm install
 npm start
 ```
 
-3. Enter a YouTube URL and select your target language to start dubbing!
+3. Enter a YouTube URL and select your target language to start AI-powered dubbing!
 
 ## API Documentation
 
@@ -144,10 +138,10 @@ http://localhost:8000
 
 ### Endpoints
 
-#### 1. Submit Regular Dubbing Job
+#### 1. Submit AI-Powered Dubbing Job
 **POST** `/dub`
 
-Submit a YouTube video for standard dubbing with automatic gender detection.
+Submit a YouTube video for AI-enhanced dubbing with speaker diarization and intelligent voice matching.
 
 **Request Body:**
 ```json
@@ -160,7 +154,7 @@ Submit a YouTube video for standard dubbing with automatic gender detection.
 
 **Parameters:**
 - `youtube_url` (required): Full YouTube URL
-- `target_language` (required): Target language code (e.g., "es", "fr", "de")
+- `target_language` (required): Target language code
 - `source_language` (optional): Source language code (auto-detected if not provided)
 
 **Response:**
@@ -168,7 +162,7 @@ Submit a YouTube video for standard dubbing with automatic gender detection.
 {
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "started",
-  "message": "Dubbing job started successfully"
+  "message": "AI-powered dubbing job started successfully"
 }
 ```
 
@@ -183,56 +177,7 @@ curl -X POST "http://localhost:8000/dub" \
   }'
 ```
 
-curl -X POST "http://localhost:8000/dub/ai" -H "Content-Type: application/json" -d '{
-    "youtube_url": "https://www.youtube.com/watch?v=rQeNkrhrGDM",
-    "target_language": "hi",
-    "source_language": "en"
-  }'
-
-#### 2. Submit AI-Powered Dubbing Job
-**POST** `/dub/ai`
-
-Submit a YouTube video for AI-enhanced dubbing with speaker diarization and intelligent voice matching.
-
-**Request Body:**
-```json
-{
-  "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "target_language": "es",
-  "source_language": "en",
-  "use_ai_analysis": true
-}
-```
-
-**Parameters:**
-- `youtube_url` (required): Full YouTube URL
-- `target_language` (required): Target language code
-- `source_language` (optional): Source language code
-- `use_ai_analysis` (optional): Enable AI analysis (default: true)
-- `timing_aware` (optional): Enable timing-aware translation and speed adjustment (default: true for AI dubbing)
-
-**Response:**
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "started",
-  "message": "AI-powered dubbing job started successfully"
-}
-```
-
-**Example:**
-```bash
-curl -X POST "http://localhost:8000/dub/ai" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    "target_language": "es",
-    "source_language": "en",
-    "use_ai_analysis": true
-  }'
-```
-
-#### 3. Check Job Status
+#### 2. Check Job Status
 **GET** `/status/{job_id}`
 
 Get the current status and progress of a dubbing job.
@@ -241,9 +186,9 @@ Get the current status and progress of a dubbing job.
 ```json
 {
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "translating",
-  "progress": 50,
-  "message": "Translating transcription to target language",
+  "status": "ai_analysis",
+  "progress": 30,
+  "message": "Analyzing speakers and voice characteristics",
   "error": null
 }
 ```
@@ -252,10 +197,7 @@ Get the current status and progress of a dubbing job.
 - `initialized`: Job created
 - `downloading`: Downloading YouTube video
 - `extracting_audio`: Extracting audio from video
-- `detecting_gender`: Detecting speaker gender
-- `transcribing`: Transcribing audio to text
-- `translating`: Translating text to target language
-- `generating_speech`: Generating speech with TTS
+- `ai_analysis`: AI-powered speaker analysis and voice matching
 - `synchronizing`: Syncing audio with video
 - `completed`: Job completed successfully
 - `failed`: Job failed
@@ -265,7 +207,7 @@ Get the current status and progress of a dubbing job.
 curl "http://localhost:8000/status/550e8400-e29b-41d4-a716-446655440000"
 ```
 
-#### 4. Download Dubbed Video
+#### 3. Download Dubbed Video
 **GET** `/download/{job_id}`
 
 Get download information for a completed dubbed video.
@@ -282,7 +224,7 @@ Get download information for a completed dubbed video.
 curl "http://localhost:8000/download/550e8400-e29b-41d4-a716-446655440000"
 ```
 
-#### 5. Get All Jobs
+#### 4. Get All Jobs
 **GET** `/jobs`
 
 Get statistics and information about all dubbing jobs.
@@ -310,7 +252,7 @@ Get statistics and information about all dubbing jobs.
 curl "http://localhost:8000/jobs"
 ```
 
-#### 6. Health Check
+#### 5. Health Check
 **GET** `/health`
 
 Check if the service is running.
