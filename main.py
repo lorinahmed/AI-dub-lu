@@ -51,9 +51,6 @@ class AIDubRequest(BaseModel):
     target_language: str
     source_language: Optional[str] = None
     use_ai_analysis: bool = True
-    timing_aware: bool = True
-
-
 
 class DubResponse(BaseModel):
     job_id: str
@@ -153,8 +150,7 @@ async def start_ai_dubbing(request: AIDubRequest, background_tasks: BackgroundTa
             job_id,
             request.youtube_url,
             request.target_language,
-            request.source_language,
-            request.timing_aware
+            request.source_language
         )
         
         return DubResponse(
@@ -165,8 +161,6 @@ async def start_ai_dubbing(request: AIDubRequest, background_tasks: BackgroundTa
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 async def process_dubbing_job(job_id: str, youtube_url: str, target_language: str, source_language: Optional[str] = None):
     """Background task to process the dubbing job"""
@@ -219,7 +213,7 @@ async def process_dubbing_job(job_id: str, youtube_url: str, target_language: st
             "message": f"Dubbing failed: {str(e)}"
         })
 
-async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language: str, source_language: Optional[str] = None, timing_aware: bool = True):
+async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language: str, source_language: Optional[str] = None):
     """Background task to process AI-powered dubbing job"""
     try:
         # Update job status
@@ -233,18 +227,8 @@ async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language:
         audio_path = await video_processor.extract_audio(video_path, job_id)
         job_manager.update_job(job_id, {"status": "ai_analysis", "progress": 30})
         
-        # Step 3: AI-powered dubbing with speaker diarization (with timing awareness if enabled)
-        try:
-            # Add timeout to prevent hanging
-            loop = asyncio.get_event_loop()
-            dubbed_audio_path = await asyncio.wait_for(
-                ai_dubber.dub_with_ai_analysis(audio_path, target_language, job_id, timing_aware),
-                timeout=300.0  # 5 minute timeout
-            )
-        except asyncio.TimeoutError:
-            print("DEBUG: AI dubbing timed out, trying simple fallback...")
-            # Try simple fallback if AI dubbing times out
-            dubbed_audio_path = await ai_dubber.dub_with_ai_analysis(audio_path, target_language, job_id, timing_aware, use_simple_fallback=True)
+        # Step 3: AI-powered dubbing with speaker diarization
+        dubbed_audio_path = await ai_dubber.dub_with_ai_analysis(audio_path, target_language, job_id)
         job_manager.update_job(job_id, {"status": "synchronizing", "progress": 85})
         
         # Step 4: Synchronize audio with video
@@ -257,7 +241,7 @@ async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language:
             "status": "completed",
             "progress": 100,
             "output_path": output_path,
-            "message": f"AI-powered dubbing completed successfully{' (timing-aware)' if timing_aware else ''}"
+            "message": "AI-powered dubbing completed successfully"
         })
         
     except Exception as e:
@@ -266,8 +250,6 @@ async def process_ai_dubbing_job(job_id: str, youtube_url: str, target_language:
             "error": str(e),
             "message": f"AI dubbing failed: {str(e)}"
         })
-
-
 
 @app.get("/health")
 async def health_check():

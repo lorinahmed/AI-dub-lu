@@ -1,12 +1,13 @@
 import os
 import asyncio
 from typing import Optional
-from googletrans import Translator as GoogleTranslator
 
 class Translator:
     def __init__(self):
-        self.translator = GoogleTranslator()
-        self.service = os.getenv("TRANSLATION_SERVICE", "google")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        
+        # OpenAI API key is set when needed
+        pass
     
     async def translate(self, text: str, target_language: str, source_language: Optional[str] = None) -> str:
         """Translate text to target language"""
@@ -26,29 +27,27 @@ class Translator:
             raise Exception(f"Translation failed: {str(e)}")
     
     async def _translate_sync(self, text: str, target_language: str, source_language: Optional[str] = None) -> str:
-        """Synchronous translation using Google Translate"""
+        """Synchronous translation using OpenAI"""
         try:
-            # Detect source language if not provided
-            if not source_language:
-                detected = await self.translator.detect(text)
-                source_language = detected.lang
+            # Use OpenAI for better timing control
+            original_word_count = len(text.split())
+            target_word_count = original_word_count  # Maintain similar word count
             
-            # Translate the text
-            result = await self.translator.translate(
-                text, 
-                dest=target_language, 
-                src=source_language
-            )
+            print(f"DEBUG: OpenAI translation request:")
+            print(f"  Original text: {text[:100]}...")
+            print(f"  Original word count: {original_word_count}")
+            print(f"  Target word count: {target_word_count}")
             
-            translated_text = result.text
+            translated_text = await self._gpt_timing_aware_translate(text, target_language, target_word_count, source_language)
             
-            if not translated_text:
-                raise Exception("Translation returned empty result")
+            actual_word_count = len(translated_text.split())
+            print(f"  Translated word count: {actual_word_count}")
+            print(f"  Translation: {translated_text[:100]}...")
             
             return translated_text
             
         except Exception as e:
-            raise Exception(f"Google Translate error: {str(e)}")
+            raise Exception(f"OpenAI translation error: {str(e)}")
     
     async def translate_segments(self, segments: list, target_language: str, source_language: Optional[str] = None, timing_aware: bool = False) -> list:
         """Translate a list of text segments with timestamps"""
@@ -101,23 +100,22 @@ class Translator:
         return max(target_words, 1)
     
     async def _timing_aware_translate(self, text: str, target_language: str, target_word_count: int, source_language: Optional[str] = None) -> str:
-        """Use GPT for timing-aware translation if available, otherwise fallback to regular translation"""
+        """Use GPT for timing-aware translation"""
         try:
-            # Try to use OpenAI for timing-aware translation
-            openai_api_key = os.getenv("OPENAI_API_KEY")
-            if openai_api_key:
-                return await self._gpt_timing_aware_translate(text, target_language, target_word_count, source_language)
-            else:
-                # Fallback to regular translation
-                return await self.translate(text, target_language, source_language)
+            return await self._gpt_timing_aware_translate(text, target_language, target_word_count, source_language)
         except Exception as e:
-            print(f"Timing-aware translation failed, using fallback: {str(e)}")
-            return await self.translate(text, target_language, source_language)
+            raise Exception(f"OpenAI timing-aware translation failed: {str(e)}")
     
     async def _gpt_timing_aware_translate(self, text: str, target_language: str, target_word_count: int, source_language: Optional[str] = None) -> str:
         """Use GPT for timing-aware translation"""
         try:
             import openai
+            
+            # Ensure OpenAI API key is set
+            if not self.openai_api_key:
+                raise Exception("OPENAI_API_KEY environment variable not set")
+            
+            openai.api_key = self.openai_api_key
             
             # Language name mapping
             language_names = {
@@ -130,27 +128,59 @@ class Translator:
             target_lang_name = language_names.get(target_language, target_language)
             
             prompt = f"""
-            Translate the following text to {target_lang_name}, keeping it concise enough to be spoken in approximately {target_word_count} words (target: {target_word_count} words).
+            Translate the following text to {target_lang_name}, maintaining similar length and speaking duration.
 
-            IMPORTANT: 
-            - Preserve the meaning and intent, not exact word-for-word translation
-            - Keep the translation natural and conversational
-            - Aim for exactly {target_word_count} words (±1 word)
-            - If the original is too long, condense it while keeping key information
-            - If the original is too short, expand slightly while maintaining natural flow
+            CRITICAL REQUIREMENTS:
+            - Target word count: {target_word_count} words (±10% tolerance)
+            - COMPLETE TRANSLATION: Translate the ENTIRE text, do not cut off or truncate
+            - Preserve the meaning and intent
+            - MATCH THE VIBE: Analyze the original text's tone and style, then match it in translation
+
+            TONE MATCHING:
+            - If original is poetic/emotional → Make translation poetic/emotional
+            - If original is formal/official → Make translation formal/official  
+            - If original is casual/conversational → Make translation casual/conversational
+            - If original is technical/professional → Make translation technical/professional
+            - If original is dramatic/intense → Make translation dramatic/intense
+            - If original is humorous/light → Make translation humorous/light
+
+            LANGUAGE STYLE (adapt based on original tone):
+            - For Hindi: Use natural Hindi-Urdu mix with some English words, like "main office ja raha hun" or "yeh kaam bahut mushkil hai" not pure Hindi "मैं कार्यालय जा रहा हूँ"
+            - For Spanish: Use casual, everyday Spanish, not formal academic Spanish
+            - For French: Use conversational French, avoid overly formal constructions
+            - For German: Use natural spoken German, not formal written German
+            - For all languages: Use contractions, informal expressions, and natural speech patterns
+
+            LENGTH CONTROL:
+            - If original is longer: Condense while keeping key information
+            - If original is shorter: Expand slightly while maintaining natural flow
+            - Count words carefully and stay within target range
+            - NEVER truncate or cut off the translation
 
             Original text: "{text}"
+
+            Important:
+
+            Before translating, reflect briefly on the tone, vocabulary, and cultural adaptation needed for natural speech in the target language.
+            Translate it as if it’s being spoken aloud by a native speaker in {target_lang_name} for a dubbed video.
+
+            IMPORTANT: First analyze the tone/vibe of the original text, then provide a COMPLETE translation that matches that style:
 
             Translation ({target_lang_name}):
             """
             
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
+            from openai import OpenAI
+            
+            client = OpenAI(api_key=self.openai_api_key)
+            
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a professional translator specializing in timing-aware translations for dubbing."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=200,
+                max_tokens=1000,  # Increased to ensure complete translations
                 temperature=0.3
             )
             

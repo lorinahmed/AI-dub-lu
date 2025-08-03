@@ -36,14 +36,10 @@ class AIDubber:
         self.whisper_model = whisper.load_model("base")
         print("DEBUG: AI Dubber initialized with PyAnnote speaker diarization and voice matching")
         
-    async def dub_with_ai_analysis(self, audio_path: str, target_language: str, job_id: str, timing_aware: bool = True, use_simple_fallback: bool = False) -> str:
+    async def dub_with_ai_analysis(self, audio_path: str, target_language: str, job_id: str, timing_aware: bool = True) -> str:
         """AI-powered dubbing with speaker diarization and intelligent voice matching"""
         try:
-            print(f"DEBUG: Starting AI-powered dubbing for job {job_id} (timing_aware: {timing_aware}, fallback: {use_simple_fallback})")
-            
-            if use_simple_fallback:
-                print("DEBUG: Using simple fallback mode - skipping complex AI analysis")
-                return await self._simple_dubbing_fallback(audio_path, target_language, job_id, timing_aware)
+            print(f"DEBUG: Starting AI-powered dubbing for job {job_id} (timing_aware: {timing_aware})")
             
             # Step 1: Get PyAnnote speaker diarization
             print("DEBUG: Step 1 - Starting PyAnnote speaker diarization...")
@@ -56,8 +52,9 @@ class AIDubber:
                 "pyannote/speaker-diarization-3.1",
                 use_auth_token=huggingface_token
             )
-            print("DEBUG: Running PyAnnote diarization...")
-            diarization = pipeline(audio_path)
+            print("DEBUG: Running PyAnnote diarization with reduced sensitivity...")
+            # Use parameters to reduce speaker detection sensitivity
+            diarization = pipeline(audio_path, min_speakers=1, max_speakers=5)
             print("DEBUG: PyAnnote diarization completed")
             print("DEBUG: PyAnnote diarization result:")
             print(diarization)
@@ -72,15 +69,22 @@ class AIDubber:
             segments = await self._analyze_speakers_ai(segments, audio_path)
             print(f"DEBUG: AI analysis completed, {len(segments)} segments analyzed")
             
-            # Step 4: Intelligent voice matching per speaker
-            print("DEBUG: Step 4 - Starting intelligent voice matching...")
-            segments = await self._match_voices_intelligently(segments, target_language)
-            print(f"DEBUG: Voice matching completed, {len(segments)} segments matched")
-            
-            # Step 5: Translate with context preservation (and timing awareness if enabled)
-            print(f"DEBUG: Step 5 - Starting translation step...")
+            # Step 4: Translate with context preservation (and timing awareness if enabled)
+            print(f"DEBUG: Step 4 - Starting translation step...")
             segments = await self._translate_with_context(segments, target_language, timing_aware)
             print(f"DEBUG: Translation completed, {len(segments)} segments processed")
+            
+            # Step 5: Intelligent voice matching on groups (if timing_aware)
+            if timing_aware and hasattr(self, 'translated_groups') and self.translated_groups:
+                print("DEBUG: Step 5 - Starting intelligent voice matching on groups...")
+                self.translated_groups = await self._match_voices_on_groups(self.translated_groups, segments, target_language)
+                print(f"DEBUG: Group voice matching completed, {len(self.translated_groups)} groups matched")
+            else:
+                print("DEBUG: Step 5 - Skipping group voice matching (not timing_aware or no groups)")
+                # Fallback to individual segment voice matching
+                print("DEBUG: Step 5 - Starting intelligent voice matching on individual segments...")
+                segments = await self._match_voices_intelligently(segments, target_language)
+                print(f"DEBUG: Individual voice matching completed, {len(segments)} segments matched")
             
             # Step 6: Generate AI-enhanced speech (with timing adjustment if enabled)
             print(f"DEBUG: Step 6 - Starting speech generation step...")
@@ -91,58 +95,9 @@ class AIDubber:
             
         except Exception as e:
             print(f"DEBUG: AI dubbing failed with error: {str(e)}")
-            print("DEBUG: Attempting simple fallback mode...")
-            try:
-                return await self._simple_dubbing_fallback(audio_path, target_language, job_id, timing_aware)
-            except Exception as fallback_error:
-                print(f"DEBUG: Simple fallback also failed: {str(fallback_error)}")
-                raise Exception(f"AI dubbing failed: {str(e)}")
+            raise Exception(f"AI dubbing failed: {str(e)}")
     
-    async def _simple_dubbing_fallback(self, audio_path: str, target_language: str, job_id: str, timing_aware: bool = True) -> str:
-        """Simple fallback dubbing without complex AI analysis"""
-        try:
-            print("DEBUG: Starting simple fallback dubbing...")
-            
-            # Step 1: Simple transcription with Whisper
-            print("DEBUG: Step 1 - Simple Whisper transcription...")
-            result = self.whisper_model.transcribe(
-                audio_path,
-                verbose=True,
-                word_timestamps=True,
-                language="en"
-            )
-            print("DEBUG: Simple transcription completed")
-            
-            # Step 2: Create simple segments
-            print("DEBUG: Step 2 - Creating simple segments...")
-            segments = []
-            for i, seg in enumerate(result.get('segments', [])):
-                segment = SpeakerSegment(
-                    start_time=seg.get('start', 0),
-                    end_time=seg.get('end', 0),
-                    text=seg.get('text', '').strip(),
-                    speaker_id=f"SPEAKER_{i:02d}",
-                    gender="unknown",
-                    confidence=1.0
-                )
-                segments.append(segment)
-            print(f"DEBUG: Created {len(segments)} simple segments")
-            
-            # Step 3: Simple translation
-            print("DEBUG: Step 3 - Simple translation...")
-            segments = await self._translate_with_context(segments, target_language, timing_aware)
-            print(f"DEBUG: Simple translation completed, {len(segments)} segments processed")
-            
-            # Step 4: Simple speech generation
-            print("DEBUG: Step 4 - Simple speech generation...")
-            dubbed_audio_path = await self._generate_ai_speech(segments, target_language, job_id, timing_aware)
-            print("DEBUG: Simple speech generation completed")
-            
-            return dubbed_audio_path
-            
-        except Exception as e:
-            print(f"DEBUG: Simple fallback failed: {str(e)}")
-            raise Exception(f"Simple fallback dubbing failed: {str(e)}")
+
     
     async def _ai_transcribe_with_pyannote(self, audio_path: str, diarization) -> List[SpeakerSegment]:
         """AI-powered transcription with PyAnnote speaker diarization"""
@@ -172,28 +127,7 @@ class AIDubber:
             print(f"DEBUG: AI transcription failed with error: {str(e)}")
             raise Exception(f"AI transcription failed: {str(e)}")
     
-    async def _ai_transcribe_with_speakers(self, audio_path: str) -> List[SpeakerSegment]:
-        """AI-powered transcription with fallback speaker detection (legacy method)"""
-        try:
-            print(f"DEBUG: Starting AI transcription with fallback speaker detection")
-            
-            # Step 1: Use Whisper for transcription
-            result = self.whisper_model.transcribe(
-                audio_path,
-                verbose=True,
-                word_timestamps=True,
-                language="en"
-            )
-            
-            
-            # Step 2: Create simple speaker segments (fallback approach)
-            segments = self._create_fallback_speaker_segments(result['segments'])
-            
-            print(f"DEBUG: Created {len(segments)} segments with fallback speaker detection")
-            return segments
-            
-        except Exception as e:
-            raise Exception(f"AI transcription failed: {str(e)}")
+
     
     def _align_whisper_with_pyannote(self, whisper_segments: List[Dict], diarization) -> List[SpeakerSegment]:
         """Align Whisper transcription segments with PyAnnote speaker diarization"""
@@ -248,6 +182,9 @@ class AIDubber:
                 segments.append(speaker_segment)
                 print(f"DEBUG: Segment {i}: Speaker {assigned_speaker}, Text: {segment['text'][:50]}...")
             
+            # Post-process to merge similar speakers and reduce speaker count
+            segments = self._merge_similar_speakers(segments)
+            
             return segments
             
         except Exception as e:
@@ -266,55 +203,79 @@ class AIDubber:
                 segments.append(speaker_segment)
             return segments
     
-    def _create_fallback_speaker_segments(self, whisper_segments: List[Dict]) -> List[SpeakerSegment]:
-        """Create speaker segments using a simple fallback approach"""
+    def _merge_similar_speakers(self, segments: List[SpeakerSegment]) -> List[SpeakerSegment]:
+        """Merge similar speakers to reduce speaker count and improve grouping"""
         try:
-            segments = []
+            if not segments:
+                return segments
             
-            # Simple approach: alternate between speakers based on segment duration
-            # This is a basic fallback when PyAnnote is not available
-            current_speaker = 0
+            # Count unique speakers
+            unique_speakers = set(seg.speaker_id for seg in segments)
+            print(f"DEBUG: Before merging: {len(unique_speakers)} unique speakers")
             
-            for i, segment in enumerate(whisper_segments):
-                segment_start = segment['start']
-                segment_end = segment['end']
-                
-                # Alternate speakers every few segments or based on duration
-                if i > 0 and (segment_start - whisper_segments[i-1]['end']) > 2.0:  # Gap > 2 seconds
-                    current_speaker = (current_speaker + 1) % 2  # Alternate between 2 speakers
-                
-                speaker_id = f"SPEAKER_{current_speaker:02d}"
-                
-                # Create speaker segment
-                speaker_segment = SpeakerSegment(
-                    start_time=segment_start,
-                    end_time=segment_end,
-                    text=segment['text'].strip(),
-                    speaker_id=speaker_id,
-                    confidence=segment.get('confidence', 0.0),
-                    voice_characteristics={}
-                )
-                
-                segments.append(speaker_segment)
-                print(f"DEBUG: Segment {i}: Speaker {speaker_id}, Text: {segment['text'][:50]}...")
+            if len(unique_speakers) <= 3:
+                print(f"DEBUG: Speaker count is reasonable ({len(unique_speakers)}), skipping merge")
+                return segments
+            
+            # Create a mapping to reduce speaker count to max 3 speakers
+            speaker_mapping = {}
+            speaker_list = sorted(list(unique_speakers))
+            
+            # Map speakers to a smaller set (max 3)
+            # Use timing-based clustering to group similar speakers
+            speaker_segments = {}
+            for segment in segments:
+                if segment.speaker_id not in speaker_segments:
+                    speaker_segments[segment.speaker_id] = []
+                speaker_segments[segment.speaker_id].append(segment)
+            
+            # Sort speakers by their first appearance time
+            speaker_list = sorted(speaker_list, key=lambda s: min(seg.start_time for seg in speaker_segments[s]))
+            
+            # Map speakers to a smaller set (max 3)
+            for i, speaker in enumerate(speaker_list):
+                if i < 3:
+                    speaker_mapping[speaker] = f"SPEAKER_{i:02d}"
+                else:
+                    # Map additional speakers to the closest speaker in time
+                    # Find the speaker that appears closest in time
+                    current_first_time = min(seg.start_time for seg in speaker_segments[speaker])
+                    closest_speaker = None
+                    min_time_diff = float('inf')
+                    
+                    for j in range(min(3, len(speaker_list))):
+                        if j < len(speaker_list):
+                            other_speaker = speaker_list[j]
+                            other_first_time = min(seg.start_time for seg in speaker_segments[other_speaker])
+                            time_diff = abs(current_first_time - other_first_time)
+                            if time_diff < min_time_diff:
+                                min_time_diff = time_diff
+                                closest_speaker = other_speaker
+                    
+                    if closest_speaker:
+                        speaker_mapping[speaker] = speaker_mapping[closest_speaker]
+                    else:
+                        speaker_mapping[speaker] = "SPEAKER_00"
+            
+            # Apply the mapping
+            for segment in segments:
+                if segment.speaker_id in speaker_mapping:
+                    old_speaker = segment.speaker_id
+                    segment.speaker_id = speaker_mapping[segment.speaker_id]
+                    if old_speaker != segment.speaker_id:
+                        print(f"DEBUG: Merged speaker {old_speaker} -> {segment.speaker_id}")
+            
+            # Count final unique speakers
+            final_speakers = set(seg.speaker_id for seg in segments)
+            print(f"DEBUG: After merging: {len(final_speakers)} unique speakers")
             
             return segments
             
         except Exception as e:
-            print(f"Fallback speaker detection error: {e}")
-            # Ultimate fallback: assign all segments to single speaker
-            segments = []
-            for i, segment in enumerate(whisper_segments):
-                speaker_segment = SpeakerSegment(
-                    start_time=segment['start'],
-                    end_time=segment['end'],
-                    text=segment['text'].strip(),
-                    speaker_id='SPEAKER_00',
-                    confidence=segment.get('confidence', 0.0),
-                    voice_characteristics={}
-                )
-                segments.append(speaker_segment)
+            print(f"DEBUG: Speaker merging failed: {e}")
             return segments
+    
+
     
 
     
@@ -516,6 +477,72 @@ class AIDubber:
         except Exception as e:
             raise Exception(f"Voice matching failed: {str(e)}")
     
+    async def _match_voices_on_groups(self, translated_groups: List[Dict], original_segments: List[SpeakerSegment], target_language: str) -> List[Dict]:
+        """Match voices intelligently on groups instead of individual segments"""
+        try:
+            print(f"DEBUG: Starting group-based voice matching for {len(translated_groups)} groups")
+            
+            # Step 1: Download available voices from ElevenLabs
+            available_voices = await self.tts_service.get_available_voices()
+            print(f"DEBUG: Downloaded {len(available_voices)} available voices from ElevenLabs")
+            
+            # Step 2: Create voice profiles for each speaker from original segments
+            speaker_profiles = {}
+            for segment in original_segments:
+                if segment.speaker_id not in speaker_profiles:
+                    speaker_profiles[segment.speaker_id] = {
+                        'segments': [],
+                        'voice_characteristics': []
+                    }
+                speaker_profiles[segment.speaker_id]['segments'].append(segment)
+                if segment.voice_characteristics:
+                    speaker_profiles[segment.speaker_id]['voice_characteristics'].append(segment.voice_characteristics)
+            
+            # Step 3: Calculate average voice characteristics for each speaker
+            speaker_avg_profiles = {}
+            for speaker_id, profile in speaker_profiles.items():
+                if profile['voice_characteristics']:
+                    # Calculate average characteristics
+                    avg_profile = {}
+                    for key in profile['voice_characteristics'][0].keys():
+                        values = [char[key] for char in profile['voice_characteristics'] if key in char]
+                        if values:
+                            avg_profile[key] = np.mean(values)
+                    
+                    # Determine dominant gender
+                    genders = [seg.gender for seg in profile['segments']]
+                    dominant_gender = max(set(genders), key=genders.count)
+                    avg_profile['gender'] = dominant_gender
+                    
+                    speaker_avg_profiles[speaker_id] = avg_profile
+                    print(f"DEBUG: Speaker {speaker_id} profile - Gender: {dominant_gender}, "
+                          f"Pitch: {avg_profile.get('pitch_mean', 0):.1f}Hz, "
+                          f"Energy: {avg_profile.get('energy_mean', 0):.3f}")
+            
+            # Step 4: Match speakers to available voices
+            if not available_voices:
+                raise Exception("Failed to download available voices from ElevenLabs - voice matching cannot proceed")
+            
+            speaker_voice_mapping = await self._match_speakers_to_voices(
+                speaker_avg_profiles, available_voices, target_language
+            )
+            
+            # Step 5: Assign matched voice IDs to groups
+            for group in translated_groups:
+                speaker_id = group["speaker_id"]
+                if speaker_id in speaker_voice_mapping:
+                    voice_info = speaker_voice_mapping[speaker_id]
+                    group["matched_voice_id"] = voice_info.get('voice_id')
+                    group["matched_voice_name"] = voice_info.get('name')
+                    print(f"DEBUG: Group (Speaker {speaker_id}) matched to voice: {voice_info.get('name')} ({voice_info.get('voice_id')})")
+                else:
+                    print(f"DEBUG: No voice match found for speaker {speaker_id} in group")
+            
+            return translated_groups
+            
+        except Exception as e:
+            raise Exception(f"Group voice matching failed: {str(e)}")
+    
     async def _match_speakers_to_voices(self, voice_profiles: Dict, available_voices: List, target_language: str) -> Dict:
         """Match speaker profiles to available voices based on characteristics"""
         try:
@@ -581,11 +608,34 @@ class AIDubber:
                         best_voice = voice
                         best_score = score
                         used_voices.add(voice.voice_id)
+                        print(f"DEBUG: Selected unused voice {voice.name} for speaker {speaker_id}")
                         break
                 
-                # If all voices are used, use the best one anyway
+                # If all voices are used, find the least used voice
                 if not best_voice and candidate_voices:
-                    best_voice, best_score = candidate_voices[0]
+                    # Count how many times each voice is used
+                    voice_usage_count = {}
+                    for used_voice_id in used_voices:
+                        voice_usage_count[used_voice_id] = voice_usage_count.get(used_voice_id, 0) + 1
+                    
+                    # Find the voice with lowest usage count
+                    least_used_voice = None
+                    min_usage = float('inf')
+                    for voice, score in candidate_voices:
+                        usage_count = voice_usage_count.get(voice.voice_id, 0)
+                        if usage_count < min_usage:
+                            min_usage = usage_count
+                            least_used_voice = voice
+                            best_score = score
+                    
+                    if least_used_voice:
+                        best_voice = least_used_voice
+                        used_voices.add(best_voice.voice_id)
+                        print(f"DEBUG: All voices used, selected least used voice {best_voice.name} for speaker {speaker_id}")
+                    else:
+                        # Fallback to best voice if no least used found
+                        best_voice, best_score = candidate_voices[0]
+                        print(f"DEBUG: Fallback to best voice {best_voice.name} for speaker {speaker_id}")
                 
                 if not best_voice:
                     raise Exception(f"No suitable voice found for speaker {speaker_id} with characteristics: {profile}")
@@ -972,10 +1022,12 @@ class AIDubber:
                             "translated_text": group["translated_text"],
                             "original_duration": group["end_time"] - group["start_time"],
                             "speaker_id": group["speaker_id"],
-                            "group_id": group["group_id"]
+                            "group_id": group["group_id"],
+                            "matched_voice_id": group.get("matched_voice_id")
                         })
                         print(f"DEBUG: Using translated group {i}:")
                         print(f"  Speaker: {group['speaker_id']}")
+                        print(f"  Voice: {group.get('matched_voice_name', 'Not assigned')} ({group.get('matched_voice_id', 'None')})")
                         print(f"  Timing: {group['start_time']:.1f}s - {group['end_time']:.1f}s")
                         print(f"  Duration: {group['end_time'] - group['start_time']:.1f}s")
                         print(f"  Full Text: {group['translated_text']}")
@@ -1005,7 +1057,8 @@ class AIDubber:
                             "translated_text": first_segment.text.strip(),
                             "original_duration": group_end - group_start,
                             "speaker_id": first_segment.speaker_id,
-                            "group_id": group_id
+                            "group_id": group_id,
+                            "matched_voice_id": first_segment.matched_voice_id
                         })
             
             # Check if we have any groups to process

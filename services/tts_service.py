@@ -253,57 +253,84 @@ class TTSService:
         try:
             from pydub import AudioSegment
             import tempfile
+            import hashlib
+            import os
             
-            # Select voice
-            voice_id = self._get_voice_for_language(target_language)
+            # Create cache directory
+            cache_dir = os.path.join(output_dir, "tts_cache")
+            os.makedirs(cache_dir, exist_ok=True)
             
             # Generate audio for each segment
             audio_segments = []
             
-            for segment in segments:
+            for i, segment in enumerate(segments):
                 text = segment.get("translated_text", "")
                 original_duration = segment.get("original_duration", 0)
                 
                 if not text.strip():
                     continue
                 
-                # Generate audio for this segment
-                audio = self.client.text_to_speech.convert(
-                    text=text,
-                    voice_id=voice_id,
-                    model_id="eleven_multilingual_v2"
-                )
+                # Use the matched voice ID from intelligent voice matching, or fallback to generic selection
+                voice_id = segment.get("matched_voice_id")
+                if not voice_id:
+                    voice_id = self._get_voice_for_language(target_language)
+                    print(f"DEBUG: No matched voice ID for segment {i}, using fallback voice: {voice_id}")
+                else:
+                    print(f"DEBUG: Using matched voice ID for segment {i}: {voice_id}")
                 
-                # Save to temporary file
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-                    # Handle both bytes and generator responses
-                    if hasattr(audio, '__iter__') and not isinstance(audio, bytes):
-                        # If it's a generator, read all chunks
-                        audio_data = b''.join(audio)
-                        temp_file.write(audio_data)
-                    else:
-                        # If it's already bytes
-                        temp_file.write(audio)
-                    temp_file.flush()
+                # Create cache key based on text and voice
+                cache_key = hashlib.md5(f"{text}_{voice_id}".encode()).hexdigest()
+                cache_file = os.path.join(cache_dir, f"{cache_key}.mp3")
+                
+                # Check if cached audio exists
+                if os.path.exists(cache_file):
+                    print(f"DEBUG: Using cached TTS audio for segment {i}")
+                    segment_audio = AudioSegment.from_mp3(cache_file)
+                else:
+                    print(f"DEBUG: Generating new TTS audio for segment {i}")
+                    # Generate audio for this segment
+                    audio = self.client.text_to_speech.convert(
+                        text=text,
+                        voice_id=voice_id,
+                        model_id="eleven_multilingual_v2"
+                    )
+                
+                                    # Save to temporary file
+                    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                        # Handle both bytes and generator responses
+                        if hasattr(audio, '__iter__') and not isinstance(audio, bytes):
+                            # If it's a generator, read all chunks
+                            audio_data = b''.join(audio)
+                            temp_file.write(audio_data)
+                        else:
+                            # If it's already bytes
+                            temp_file.write(audio)
+                        temp_file.flush()
+                        
+                        # Load audio and save to cache
+                        segment_audio = AudioSegment.from_mp3(temp_file.name)
+                        
+                        # Save to cache for future use
+                        segment_audio.export(cache_file, format="mp3")
+                        print(f"DEBUG: Saved TTS audio to cache: {cache_file}")
+                        
+                        # Clean up temporary file
+                        os.unlink(temp_file.name)
+                
+                # Now adjust speed if needed (this doesn't affect the cached version)
+                if adjust_speed and original_duration > 0:
+                    print(f"DEBUG: Adjusting audio speed for segment:")
+                    print(f"  Original duration: {original_duration:.1f}s")
+                    print(f"  Generated duration: {len(segment_audio)/1000:.1f}s")
                     
-                    # Load audio and adjust speed if needed
-                    segment_audio = AudioSegment.from_mp3(temp_file.name)
-                    
-                    if adjust_speed and original_duration > 0:
-                        print(f"DEBUG: Adjusting audio speed for segment:")
-                        print(f"  Original duration: {original_duration:.1f}s")
-                        print(f"  Generated duration: {len(segment_audio)/1000:.1f}s")
-                        segment_audio = self._adjust_audio_speed(segment_audio, original_duration)
-                        print(f"  Adjusted duration: {len(segment_audio)/1000:.1f}s")
-                    
-                    audio_segments.append({
-                        "audio": segment_audio,
-                        "start": segment.get("start", 0),
-                        "end": segment.get("end", 0)
-                    })
-                    
-                    # Clean up temporary file
-                    os.unlink(temp_file.name)
+                    segment_audio = self._adjust_audio_speed(segment_audio, original_duration)
+                    print(f"  Adjusted duration: {len(segment_audio)/1000:.1f}s")
+                
+                audio_segments.append({
+                    "audio": segment_audio,
+                    "start": segment.get("start", 0),
+                    "end": segment.get("end", 0)
+                })
             
             # Combine audio segments with proper timing
             combined_audio = self._combine_audio_segments(audio_segments)
@@ -326,28 +353,54 @@ class TTSService:
                 return audio
             
             # Calculate speed ratio
+            # If current_duration < target_duration, we need to slow down (speed_ratio < 1)
+            # If current_duration > target_duration, we need to speed up (speed_ratio > 1)
             speed_ratio = current_duration / target_duration
+            
+            print(f"DEBUG: Speed adjustment calculation:")
+            print(f"  Current duration: {current_duration:.1f}s")
+            print(f"  Target duration: {target_duration:.1f}s")
+            print(f"  Speed ratio: {speed_ratio:.3f}")
             
             # Limit speed adjustment to prevent unnatural speech (max ±30%)
             max_speed_adjustment = 0.30
             if speed_ratio > (1 + max_speed_adjustment):
                 speed_ratio = 1 + max_speed_adjustment
+                print(f"  Limited speed ratio to: {speed_ratio:.3f} (max speed up)")
             elif speed_ratio < (1 - max_speed_adjustment):
                 speed_ratio = 1 - max_speed_adjustment
+                print(f"  Limited speed ratio to: {speed_ratio:.3f} (max slow down)")
             
-            # Apply speed adjustment
-            if speed_ratio != 1.0:
+            # Apply speed adjustment - ONLY for speeding up (ratio > 1)
+            if speed_ratio > 1.0:
+                print(f"  Applying speed adjustment (speed up) with ratio: {speed_ratio:.3f}")
+                
+                # Only handle speed up (pydub works for this)
+                print(f"  Input duration: {len(audio)/1000:.1f}s")
+                print(f"  Target duration: {len(audio)/1000/speed_ratio:.1f}s")
+                
                 adjusted_audio = audio.speedup(playback_speed=speed_ratio)
+                print(f"  Output duration: {len(adjusted_audio)/1000:.1f}s")
+                
                 return adjusted_audio
+            elif speed_ratio < 1.0:
+                print(f"  TTS audio is shorter than original - skipping speed adjustment")
+                print(f"  Input duration: {len(audio)/1000:.1f}s")
+                print(f"  Target duration: {target_duration:.1f}s")
+                print(f"  Using original TTS duration (OpenAI should handle timing)")
+                return audio
+            else:
+                print(f"  No speed adjustment needed")
             
             return audio
             
         except Exception as e:
             print(f"Audio speed adjustment failed: {str(e)}")
             return audio
+            
     
     def _combine_audio_segments(self, audio_segments: list) -> AudioSegment:
-        """Combine audio segments with proper timing - maintaining original positions"""
+        """Combine audio segments maintaining original timing by adding gaps when TTS is shorter"""
         try:
             if not audio_segments:
                 # Return a short silent audio if no segments
@@ -356,35 +409,52 @@ class TTSService:
             # Sort segments by start time to ensure proper order
             sorted_segments = sorted(audio_segments, key=lambda x: x.get("start", 0))
             
-            # Find total duration
-            total_duration = max([seg["end"] for seg in sorted_segments]) if sorted_segments else 1.0
+            # Use sequential combination with timing preservation
+            combined_audio = AudioSegment.empty()
+            current_position = 0
             
-            # Ensure minimum duration
-            if total_duration <= 0:
-                total_duration = 1.0
-            
-            # Create silent audio track
-            combined_audio = AudioSegment.silent(duration=total_duration * 1000)  # Convert to milliseconds
-            
-            # Place each segment at its correct timestamp
-            for segment in sorted_segments:
-                if "audio" in segment and "start" in segment:
-                    start_time = segment["start"] * 1000  # Convert to milliseconds
+            for i, segment in enumerate(sorted_segments):
+                if "audio" in segment:
                     audio = segment["audio"]
+                    original_start = segment.get("start", 0)
+                    original_end = segment.get("end", 0)
+                    original_duration = original_end - original_start
+                    tts_duration = len(audio) / 1000.0  # Convert to seconds
                     
-                    # Ensure start_time is within bounds
-                    if start_time >= 0 and start_time < len(combined_audio):
-                        # Check if this segment would exceed the total duration
-                        if start_time + len(audio) > len(combined_audio):
-                            # Trim the audio to fit
-                            remaining_duration = len(combined_audio) - start_time
-                            if remaining_duration > 0:
-                                audio = audio[:remaining_duration]
-                            else:
-                                continue  # Skip this segment if no space left
-                        
-                        # Place the audio segment at its correct position
-                        combined_audio = combined_audio.overlay(audio, position=start_time)
+                    print(f"DEBUG: Processing segment {i}:")
+                    print(f"  Original timing: {original_start:.1f}s - {original_end:.1f}s (duration: {original_duration:.1f}s)")
+                    print(f"  TTS duration: {tts_duration:.1f}s")
+                    print(f"  Current position: {current_position:.1f}s")
+                    
+                    # Calculate how much gap we need to add to maintain original timing
+                    if i == 0:
+                        # First segment: add gap from start if needed
+                        if original_start > 0:
+                            gap_duration = original_start * 1000  # Convert to milliseconds
+                            gap = AudioSegment.silent(duration=gap_duration)
+                            combined_audio = combined_audio + gap
+                            current_position = original_start
+                            print(f"  Added initial gap: {original_start:.1f}s")
+                    else:
+                        # Subsequent segments: ensure they start at original timing
+                        expected_start = original_start
+                        if current_position < expected_start:
+                            # Add gap to reach original start time
+                            gap_duration = (expected_start - current_position) * 1000  # Convert to milliseconds
+                            gap = AudioSegment.silent(duration=gap_duration)
+                            combined_audio = combined_audio + gap
+                            current_position = expected_start
+                            print(f"  Added gap to maintain timing: {(expected_start - current_position + gap_duration/1000):.1f}s")
+                        elif current_position > expected_start:
+                            # TTS is longer than expected, just continue
+                            print(f"  TTS longer than expected, continuing at current position")
+                    
+                    # Add the audio segment
+                    combined_audio = combined_audio + audio
+                    current_position += tts_duration
+                    
+                    print(f"  Final position: {current_position:.1f}s")
+                    print(f"  ---")
             
             return combined_audio
             

@@ -149,13 +149,17 @@ class TimingAwareDubber:
             Translation ({target_lang_name}):
             """
             
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
+            from openai import OpenAI
+            client = OpenAI(api_key=self.openai_api_key)
+            
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a professional translator specializing in timing-aware translations for dubbing."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=200,
+                max_tokens=1000,  # Increased to ensure complete translations
                 temperature=0.3
             )
             
@@ -271,25 +275,31 @@ class TimingAwareDubber:
                 return audio
             
             # Calculate speed ratio
+            # If current_duration < target_duration, we need to slow down (speed_ratio < 1)
+            # If current_duration > target_duration, we need to speed up (speed_ratio > 1)
             speed_ratio = current_duration / target_duration
+            
+            print(f"DEBUG: Speed adjustment calculation:")
+            print(f"  Current duration: {current_duration:.1f}s")
+            print(f"  Target duration: {target_duration:.1f}s")
+            print(f"  Speed ratio: {speed_ratio:.3f}")
             
             # Limit speed adjustment to prevent unnatural speech
             if speed_ratio > (1 + self.max_speed_adjustment):
                 speed_ratio = 1 + self.max_speed_adjustment
+                print(f"  Limited speed ratio to: {speed_ratio:.3f} (max speed up)")
             elif speed_ratio < (1 - self.max_speed_adjustment):
                 speed_ratio = 1 - self.max_speed_adjustment
+                print(f"  Limited speed ratio to: {speed_ratio:.3f} (max slow down)")
             
             # Apply speed adjustment
             if speed_ratio != 1.0:
-                # Use pydub's speedup/slowdown methods
-                if speed_ratio > 1.0:
-                    # Speed up
-                    adjusted_audio = audio.speedup(playback_speed=speed_ratio)
-                else:
-                    # Slow down
-                    adjusted_audio = audio.speedup(playback_speed=speed_ratio)
-                
+                print(f"  Applying speed adjustment with ratio: {speed_ratio:.3f}")
+                # Use pydub's speedup method for both speed up and slow down
+                adjusted_audio = audio.speedup(playback_speed=speed_ratio)
                 return adjusted_audio
+            else:
+                print(f"  No speed adjustment needed")
             
             return audio
             
@@ -299,27 +309,40 @@ class TimingAwareDubber:
     
     def _combine_audio_segments(self, audio_segments: List[Dict]) -> AudioSegment:
         """
-        Combine audio segments with proper timing
+        Combine audio segments sequentially to prevent echo and overlapping
         """
         try:
-            # Find total duration
-            total_duration = max([seg["end"] for seg in audio_segments]) if audio_segments else 0
+            if not audio_segments:
+                return AudioSegment.silent(duration=1000)  # 1 second of silence
             
-            # Create silent audio track
-            combined_audio = AudioSegment.silent(duration=total_duration * 1000)  # Convert to milliseconds
+            # Sort segments by start time to ensure proper order
+            sorted_segments = sorted(audio_segments, key=lambda x: x.get("start", 0))
             
-            # Overlay each segment at its correct timestamp
-            for segment in audio_segments:
-                start_time = segment["start"] * 1000  # Convert to milliseconds
-                audio = segment["audio"]
-                
-                # Overlay the audio segment
-                combined_audio = combined_audio.overlay(audio, position=start_time)
+            # Use sequential combination with small gaps to prevent echo
+            combined_audio = AudioSegment.empty()
+            current_position = 0
+            
+            for segment in sorted_segments:
+                if "audio" in segment:
+                    audio = segment["audio"]
+                    
+                    # Add small gap between segments (50ms) to prevent echo
+                    if len(combined_audio) > 0:
+                        gap = AudioSegment.silent(duration=50)  # 50ms gap
+                        combined_audio = combined_audio + gap
+                        current_position += 0.05  # 50ms in seconds
+                    
+                    # Add the audio segment
+                    combined_audio = combined_audio + audio
+                    current_position += len(audio) / 1000.0  # Convert to seconds
+                    
+                    print(f"DEBUG: Added segment at position {current_position:.2f}s, duration: {len(audio)/1000:.2f}s")
             
             return combined_audio
             
         except Exception as e:
-            raise Exception(f"Audio combination failed: {str(e)}")
+            print(f"Audio combination failed: {str(e)}")
+            return AudioSegment.silent(duration=1000)
     
     def _get_voice_for_language(self, language: str) -> str:
         """
