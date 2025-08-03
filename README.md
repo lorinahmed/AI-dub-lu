@@ -53,63 +53,23 @@ See the AI-powered dubbing in action! Below are examples of original YouTube vid
 
 ### Example 1: English to Hindi Dubbing
 
-<div style="display: flex; gap: 20px; margin: 20px 0;">
-  <div style="flex: 1;">
-    <h4>Original Video (English)</h4>
-    <iframe 
-      width="100%" 
-      height="315" 
-      src="https://www.youtube.com/embed/rQeNkrhrGDM" 
-      frameborder="0" 
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-      allowfullscreen>
-    </iframe>
-  </div>
-  <div style="flex: 1;">
-    <h4>Dubbed Video (Hindi)</h4>
-    <iframe 
-      width="100%" 
-      height="315" 
-      src="https://www.youtube.com/embed/PLACEHOLDER_DUBBED_VIDEO_ID" 
-      frameborder="0" 
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-      allowfullscreen>
-    </iframe>
-    <p style="font-size: 14px; color: #666; margin-top: 10px;">
-      <em>Note: Replace PLACEHOLDER_DUBBED_VIDEO_ID with your actual dubbed video ID</em>
-    </p>
-  </div>
-</div>
+**Original Video (English)**
+[![Original Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=-gFzdusTj3g)
+
+**Dubbed Video (Hindi)**
+[![Dubbed Video](https://img.youtube.com/vi/v=rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=v=rVxlizvcAlM)
+
+*Note: Replace `PLACEHOLDER_DUBBED_VIDEO_ID` with your actual dubbed video ID*
+
+---
 
 ### Example 2: English to Hindi Dubbing
 
-<div style="display: flex; gap: 20px; margin: 20px 0;">
-  <div style="flex: 1;">
-    <h4>Original Video (English)</h4>
-    <iframe 
-      width="100%" 
-      height="315" 
-      src="https://www.youtube.com/watch?v=-gFzdusTj3g" 
-      frameborder="0" 
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-      allowfullscreen>
-    </iframe>
-  </div>
-  <div style="flex: 1;">
-    <h4>Dubbed Video (Hindi)</h4>
-    <iframe 
-      width="100%" 
-      height="315" 
-      src="https://youtu.be/rVxlizvcAlM" 
-      frameborder="0" 
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-      allowfullscreen>
-    </iframe>
-    <p style="font-size: 14px; color: #666; margin-top: 10px;">
-      <em>Note: Replace D with your actual dubbed video ID</em>
-    </p>
-  </div>
-</div>
+**Original Video (English)**
+[![Original Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=-gFzdusTj3g)
+
+**Dubbed Video (Hindi)**
+[![Dubbed Video](https://img.youtube.com/vi/rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=rVxlizvcAlM)
 
 ### Key Features Demonstrated
 
