@@ -47,6 +47,78 @@ The AI-Enhanced dubbing feature automatically includes timing-aware translation 
 5. **TTS Generation**: Generate speech for each segment with speed adjustment
 6. **Synchronization**: Combine segments with original timing and sync with video
 
+## 🎬 Demo
+
+See the AI-powered dubbing in action! Below are examples of original YouTube videos and their dubbed versions in different languages.
+
+### Example 1: English to Hindi Dubbing
+
+<div style="display: flex; gap: 20px; margin: 20px 0;">
+  <div style="flex: 1;">
+    <h4>Original Video (English)</h4>
+    <iframe 
+      width="100%" 
+      height="315" 
+      src="https://www.youtube.com/embed/rQeNkrhrGDM" 
+      frameborder="0" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen>
+    </iframe>
+  </div>
+  <div style="flex: 1;">
+    <h4>Dubbed Video (Hindi)</h4>
+    <iframe 
+      width="100%" 
+      height="315" 
+      src="https://www.youtube.com/embed/PLACEHOLDER_DUBBED_VIDEO_ID" 
+      frameborder="0" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen>
+    </iframe>
+    <p style="font-size: 14px; color: #666; margin-top: 10px;">
+      <em>Note: Replace PLACEHOLDER_DUBBED_VIDEO_ID with your actual dubbed video ID</em>
+    </p>
+  </div>
+</div>
+
+### Example 2: English to Hindi Dubbing
+
+<div style="display: flex; gap: 20px; margin: 20px 0;">
+  <div style="flex: 1;">
+    <h4>Original Video (English)</h4>
+    <iframe 
+      width="100%" 
+      height="315" 
+      src="https://www.youtube.com/watch?v=-gFzdusTj3g" 
+      frameborder="0" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen>
+    </iframe>
+  </div>
+  <div style="flex: 1;">
+    <h4>Dubbed Video (Hindi)</h4>
+    <iframe 
+      width="100%" 
+      height="315" 
+      src="https://youtu.be/rVxlizvcAlM" 
+      frameborder="0" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen>
+    </iframe>
+    <p style="font-size: 14px; color: #666; margin-top: 10px;">
+      <em>Note: Replace D with your actual dubbed video ID</em>
+    </p>
+  </div>
+</div>
+
+### Key Features Demonstrated
+
+- **🎯 Speaker Diarization**: Different speakers are identified and assigned unique voices
+- **🗣️ Natural Voice Matching**: Each speaker gets a voice that matches their characteristics
+- **⏱️ Timing Synchronization**: Dubbed audio perfectly matches original timing
+- **🌍 Multi-language Support**: High-quality translation and TTS in target language
+- **🎨 Context Preservation**: Meaning and tone are maintained in translation
+
 ## Prerequisites
 
 - Python 3.8+
