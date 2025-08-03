@@ -57,7 +57,7 @@ See the AI-powered dubbing in action! Below are examples of original YouTube vid
 [![Original Video](https://img.youtube.com/vi/-gFzdusTj3g/maxresdefault.jpg)](https://www.youtube.com/watch?v=-gFzdusTj3g)
 
 **Dubbed Video (Hindi)**
-[![Dubbed Video](https://img.youtube.com/vi/v=rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=v=rVxlizvcAlM)
+[![Dubbed Video](https://img.youtube.com/vi/rVxlizvcAlM/maxresdefault.jpg)](https://www.youtube.com/watch?v=rVxlizvcAlM)
 
 *Note: Replace `PLACEHOLDER_DUBBED_VIDEO_ID` with your actual dubbed video ID*
 
